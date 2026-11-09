@@ -180,6 +180,20 @@ class Renderer {
     gl.bindVertexArray(null);
     return { vao, vbo, count: data.length / 10 };
   }
+  // a mesh whose vertices are rewritten every frame (vertex-animated models)
+  createDynamicMesh(maxVerts) {
+    const gl = this.gl, m = this.createMesh(new Float32Array(maxVerts * 10));
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.vbo);
+    gl.bufferData(gl.ARRAY_BUFFER, maxVerts * 40, gl.DYNAMIC_DRAW);
+    m.count = 0;
+    return m;
+  }
+  updateMesh(m, data, count) {
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, m.vbo);
+    gl.bufferSubData(gl.ARRAY_BUFFER, 0, data, 0, count * 10);
+    m.count = count;
+  }
   deleteMesh(m) { if (!m) return; this.gl.deleteBuffer(m.vbo); this.gl.deleteVertexArray(m.vao); }
 
   beginScene(time) {
@@ -213,10 +227,10 @@ class Renderer {
     gl.bindVertexArray(m.vao);
     gl.drawArrays(gl.TRIANGLES, 0, m.count);
   }
-  drawEntity(m, model, light, glow = 0, alpha = 1) {
+  drawEntity(m, model, light, glow = 0, alpha = 1, texScale = 3.0) {
     const gl = this.gl, u = this.u;
     gl.uniformMatrix4fv(u.uModel, false, model);
-    gl.uniform1f(u.uEnt, 1); gl.uniform1f(u.uTexScale, 3.0);
+    gl.uniform1f(u.uEnt, 1); gl.uniform1f(u.uTexScale, texScale);
     gl.uniform3fv(u.uEntLight, light); gl.uniform1f(u.uGlow, glow); gl.uniform1f(u.uAlpha, alpha);
     gl.bindVertexArray(m.vao);
     gl.drawArrays(gl.TRIANGLES, 0, m.count);

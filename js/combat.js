@@ -26,7 +26,7 @@ function makeGloom(x, z, y) {
 function makeWyrm(f) {
   return { type: 'wyrm', id: f.id, home: { x: f.x, z: f.z }, x: f.x, z: f.z, y: f.y, face: f.face || 0, hp: 8, maxHp: 8,
     state: 'sleep', st: 0, t: 0, life: 1e9, walk: 0, speed: 0, flashT: 0, flinch: 0, cool: 2, snoreT: 2, awayT: 0,
-    leash: Math.max(5, f.r * 0.5), scale: 1.3, aim: 0, dieT: 0, name: 'the Cinder Wyrm' };
+    leash: Math.max(5, f.r * 0.5), scale: 2.0, aim: 0, dieT: 0, name: 'the Cinder Wyrm' };
 }
 function spawnWyrmsFor(ch) {
   for (const f of ch.features) {
@@ -75,7 +75,7 @@ function resolveSwing() {
   for (const c of creatures) {
     if (c.state === 'dying') continue;
     const dx = c.x - S.x, dz = c.z - S.z, d = Math.hypot(dx, dz) || 0.01;
-    const reach = c.type === 'wyrm' ? 4.4 * c.scale : 2.5;   // the wyrm is big: its head is well in front of its body
+    const reach = c.type === 'wyrm' ? 2.6 * c.scale : 2.5;   // the wyrm is big: its head is well in front of its body
     if (d > reach || (dx * fx + dz * fz) / d < 0.4) continue;
     if (Math.abs(c.y - S.y) > 2.5) continue;
     if (d < bs) { bs = d; best = c; }
@@ -191,9 +191,97 @@ function updateGloom(c, dt, d, dx, dz, see) {
 }
 
 // ---- the Cinder Wyrm ---------------------------------------------------------
+// The model is "Animated Monsters" by Quaternius (CC0), baked into per-vertex
+// keyframes; here we blend between keyframes and rebuild a flat-shaded mesh.
+const Dragon = (() => {
+  let ready = false, V = 0, NT = 0, idx, pos, triLayer, triTint, mesh, buf, P, eyes = [], anims;
+  const MATS = {
+    Main: [T.SCALES, [1, 1, 1]], Belly: [T.BONE, [1.0, 0.78, 0.5]], Wings: [T.SCALES, [0.6, 0.45, 0.45]],
+    Claws: [T.BONE, [0.95, 0.9, 0.85]], Eyes: [T.EYE, [1, 1, 1]],
+  };
+  function b64(str) { const s = atob(str), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+  function init() {
+    const d = DRAGON_DATA;
+    V = d.verts; NT = d.tris; anims = d.anims;
+    idx = new Uint16Array(b64(d.index).buffer);
+    const q = new Uint16Array(b64(d.frames).buffer);
+    pos = new Float32Array(q.length);
+    for (let i = 0; i < q.length; i++) pos[i] = d.lo[i % 3] + q[i] * d.scale[i % 3];
+    triLayer = new Float32Array(NT); triTint = new Float32Array(NT * 3);
+    const eyeSet = new Set();
+    d.triMat.forEach((m, t) => {
+      const [lay, tint] = MATS[d.materials[m]] || MATS.Main;
+      triLayer[t] = lay; triTint.set(tint, t * 3);
+      if (d.materials[m] === 'Eyes') for (let k = 0; k < 3; k++) eyeSet.add(idx[t * 3 + k]);
+    });
+    eyes = [...eyeSet];
+    mesh = R.createDynamicMesh(NT * 3);
+    buf = new Float32Array(NT * 3 * 10);
+    P = new Float32Array(V * 3);
+    ready = true;
+  }
+  // blend the two keyframes around time t (seconds) of an animation into P
+  function sample(name, t, loop) {
+    if (!ready) init();
+    const a = anims[name], n = a.count;
+    let f = t * a.fps;
+    f = loop ? ((f % n) + n) % n : clamp(f, 0, n - 1);
+    const f0 = Math.floor(f), f1 = loop ? (f0 + 1) % n : Math.min(n - 1, f0 + 1), k = f - f0;
+    const o0 = (a.start + f0) * V * 3, o1 = (a.start + f1) * V * 3;
+    for (let i = 0; i < V * 3; i++) P[i] = pos[o0 + i] + (pos[o1 + i] - pos[o0 + i]) * k;
+  }
+  function eyeCentre() {
+    let x = 0, y = 0, z = 0;
+    for (const v of eyes) { x += P[v * 3]; y += P[v * 3 + 1]; z += P[v * 3 + 2]; }
+    return [x / eyes.length, y / eyes.length, z / eyes.length];
+  }
+  function draw(model, light, glow) {
+    let o = 0;
+    for (let t = 0; t < NT; t++) {
+      const a = idx[t * 3] * 3, b = idx[t * 3 + 1] * 3, c = idx[t * 3 + 2] * 3;
+      const ux = P[b] - P[a], uy = P[b + 1] - P[a + 1], uz = P[b + 2] - P[a + 2];
+      const vx = P[c] - P[a], vy = P[c + 1] - P[a + 1], vz = P[c + 2] - P[a + 2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const l = Math.hypot(nx, ny, nz) || 1; nx /= l; ny /= l; nz /= l;
+      for (const v of [a, b, c]) {
+        buf[o] = P[v]; buf[o + 1] = P[v + 1]; buf[o + 2] = P[v + 2];
+        buf[o + 3] = nx; buf[o + 4] = ny; buf[o + 5] = nz;
+        buf[o + 6] = triTint[t * 3]; buf[o + 7] = triTint[t * 3 + 1]; buf[o + 8] = triTint[t * 3 + 2];
+        buf[o + 9] = triLayer[t];
+        o += 10;
+      }
+    }
+    R.updateMesh(mesh, buf, NT * 3);
+    R.drawEntity(mesh, model, light, glow, 1, 1.2);
+  }
+  return { sample, eyeCentre, draw };
+})();
+// which animation (and how far into it) each wyrm state shows
+function wyrmClip(c) {
+  switch (c.state) {
+    case 'sleep': return ['death', 99, false, true];                            // curled up on the hoard, slowly breathing
+    case 'roar': return ['attack2', (1.5 - c.st) * 1.1, false];
+    case 'breathW': return ['attack2', (1.0 - c.st) * 0.55, false];
+    case 'breath': return ['attack2', 0.55 + (1.4 - c.st) * 0.85, false];
+    case 'biteW': return ['attack', (0.55 - c.st) * 0.8, false];
+    case 'bite': return ['attack', 0.45 + (0.3 - c.st) * 1.5, false];
+    case 'tailW': return ['hit', (0.5 - c.st) * 1.2, false];
+    case 'tail': return ['hit', 0.6 + (0.4 - c.st) * 2.5, false];
+    case 'dying': return ['death', c.dieT * 0.6, false];
+  }
+  if (c.flinch > 0) return ['hit', (0.3 - c.flinch) * 2, false];
+  return ['flying', c.t, true];
+}
+function wyrmModelMatrix(c) {
+  const sinking = c.state === 'dying' ? Math.max(0, c.dieT - 1.8) * 0.5 : 0;
+  return m4trs(c.x, c.y - sinking, c.z, c.face, 0, 0, c.scale);
+}
 function wyrmMouth(c) {
-  const M = wyrmMatrices(c, poseWyrm(c));
-  return { p: m4pt(M.head, 0, -0.05, 1.2), d: (() => { const a = m4pt(M.head, 0, 0, 0), b = m4pt(M.head, 0, 0, 1); const v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]; const l = Math.hypot(...v) || 1; return v.map(x => x / l); })() };
+  const [anim, t, loop] = wyrmClip(c);
+  Dragon.sample(anim, t, loop);
+  const e = Dragon.eyeCentre(), M = wyrmModelMatrix(c);
+  const p = m4pt(M, e[0], e[1] - 0.25, e[2] + 0.75);
+  return { p, d: [Math.sin(c.aim), -0.12, Math.cos(c.aim)] };
 }
 function wakeWyrm(c, why) {
   if (c.state !== 'sleep' && c.state !== 'return') return;
@@ -234,8 +322,8 @@ function updateWyrm(c, dt) {
     c.snoreT -= dt;
     if (c.snoreT <= 0) { c.snoreT = 3.8; if (d < 32) Sfx.snore(panFor(c.x, c.z)); }
     const running = (keys.ShiftLeft || keys.ShiftRight) && Math.hypot(S.vx, S.vz) > 5;
-    const seenLight = lampLevel() > 0 && d < 11 && los(S.level, c.x, c.y + 2, c.z, S.x, S.y + 1.5, S.z);
-    if (seenLight || d < 4.5 || (running && d < 9)) wakeWyrm(c, 'light');
+    const seenLight = lampLevel() > 0 && d < 13 && los(S.level, c.x, c.y + 2, c.z, S.x, S.y + 1.5, S.z);
+    if (seenLight || d < 5.5 || (running && d < 9)) wakeWyrm(c, 'light');
     return;
   }
   const turn = (rate) => { c.face += clamp(rel, -rate * dt, rate * dt); };
@@ -254,14 +342,14 @@ function updateWyrm(c, dt) {
       c.cool -= dt;
       if (d > c.leash + 16) { c.awayT += dt; if (c.awayT > 6) { c.state = 'return'; c.awayT = 0; break; } } else c.awayT = 0;
       // shuffle towards the player, but never far from the hoard
-      if (d > 6 && homeD < c.leash) {
+      if (d > 3 * c.scale && homeD < c.leash) {
         const nx = c.x + dx / d * 1.8 * dt, nz = c.z + dz / d * 1.8 * dt;
         if (Math.hypot(nx - c.home.x, nz - c.home.z) < c.leash) moveCreature(c, dx / d, dz / d, 1.8, dt, 1.2);
         else c.speed *= 0.9;
       } else c.speed *= Math.max(0, 1 - dt * 6);
       if (c.cool <= 0) {
-        if (d < 4.6 * c.scale / 1.3 && Math.abs(rel) < 0.7) { c.state = 'biteW'; c.st = 0.55; Sfx.grunt(panFor(c.x, c.z)); }
-        else if (d < 5.5 && Math.abs(rel) > 2.2) { c.state = 'tailW'; c.st = 0.5; }
+        if (d < 2.7 * c.scale && Math.abs(rel) < 0.7) { c.state = 'biteW'; c.st = 0.55; Sfx.grunt(panFor(c.x, c.z)); }
+        else if (d < 3.0 * c.scale && Math.abs(rel) > 2.2) { c.state = 'tailW'; c.st = 0.5; }
         else if (d < 15 && Math.abs(rel) < 0.5 && los(S.level, c.x, c.y + 2.5, c.z, S.x, S.y + 1.5, S.z)) {
           c.state = 'breathW'; c.st = 1.0; c.aim = c.face;
           log('The wyrm rears back. Its throat begins to glow!', 'warn');
@@ -271,7 +359,7 @@ function updateWyrm(c, dt) {
     }
     case 'biteW': turn(2.0); if (c.st <= 0) {
       c.state = 'bite'; c.st = 0.3; Sfx.thwack(panFor(c.x, c.z));
-      if (d < 5 && Math.abs(rel) < 0.9) {
+      if (d < 3.0 * c.scale && Math.abs(rel) < 0.9) {
         hurt(25, 'wyrm'); log('The wyrm\'s jaws snap shut on you!', 'bad');
         const r = collide(S.level, S.x + dx / d * 2, S.z + dz / d * 2, RADIUS, S.y); S.x = r[0]; S.z = r[1];
       }
@@ -279,31 +367,36 @@ function updateWyrm(c, dt) {
     case 'bite': if (c.st <= 0) { c.state = 'stalk'; c.cool = 1.3 + Math.random(); } break;
     case 'tailW': if (c.st <= 0) {
       c.state = 'tail'; c.st = 0.4; Sfx.whoosh();
-      if (d < 6 && Math.abs(rel) > 1.8) {
+      if (d < 3.3 * c.scale && Math.abs(rel) > 1.8) {
         hurt(15, 'tail'); log('The wyrm\'s tail sweeps you off your feet!', 'bad');
         const r = collide(S.level, S.x + dx / d * 2.5, S.z + dz / d * 2.5, RADIUS, S.y); S.x = r[0]; S.z = r[1];
       }
     } break;
     case 'tail': if (c.st <= 0) { c.state = 'stalk'; c.cool = 1.5 + Math.random(); } break;
     case 'breathW': c.aim += clamp(angWrap(Math.atan2(dx, dz) - c.aim), -0.8 * dt, 0.8 * dt); c.face = c.aim;
-      if (c.st <= 0) { c.state = 'breath'; c.st = 1.4; Sfx.fire(panFor(c.x, c.z)); } break;
+      if (c.st <= 0) { c.state = 'breath'; c.st = 1.4; c.pitch = undefined; c.burnMsg = false; Sfx.fire(panFor(c.x, c.z)); } break;
     case 'breath': {
       c.aim += clamp(angWrap(Math.atan2(dx, dz) - c.aim), -0.45 * dt, 0.45 * dt); c.face = c.aim;
       const m = wyrmMouth(c);
+      // pitch the jet down towards the player
+      const hx = S.x - m.p[0], hz = S.z - m.p[2], hy = (S.y + 1) - m.p[1];
+      const want = Math.atan2(hy, Math.hypot(hx, hz) || 0.01);
+      c.pitch = c.pitch === undefined ? want : c.pitch + clamp(want - c.pitch, -0.8 * dt, 0.8 * dt);
+      const cp = Math.cos(c.pitch), dir = [Math.sin(c.aim) * cp, Math.sin(c.pitch), Math.cos(c.aim) * cp];
       fireAcc += dt * 40;
       while (fireAcc >= 1) {
         fireAcc--;
-        const sp = 11 + Math.random() * 4;
-        particles.push({ x: m.p[0], y: m.p[1], z: m.p[2], vx: (Math.sin(c.aim) + (Math.random() - 0.5) * 0.35) * sp, vy: (m.d[1] + (Math.random() - 0.5) * 0.2) * sp,
-          vz: (Math.cos(c.aim) + (Math.random() - 0.5) * 0.35) * sp, life: 0.7, max: 0.7, s: 1.2, grow: 3.5, mat: 'FIRE', glow: 1, nograv: true });
+        const sp = 12 + Math.random() * 4, j = () => (Math.random() - 0.5) * 0.3;
+        particles.push({ x: m.p[0], y: m.p[1], z: m.p[2], vx: (dir[0] + j()) * sp, vy: (dir[1] + j()) * sp, vz: (dir[2] + j()) * sp,
+          life: 0.75, max: 0.75, s: 1.3, grow: 4, mat: 'FIRE', glow: 1, nograv: true });
       }
-      // in the cone of fire?
-      const px = S.x - m.p[0], pz = S.z - m.p[2], pd = Math.hypot(px, pz) || 0.01;
-      const ang = Math.abs(angWrap(Math.atan2(px, pz) - c.aim));
-      if (pd < 12 && ang < 0.34 && Math.abs(S.y + 1 - m.p[1]) < 4 && los(S.level, m.p[0], m.p[1], m.p[2], S.x, S.y + 1.2, S.z)) {
+      // inside the cone of fire?
+      const px = S.x - m.p[0], py = S.y + 1 - m.p[1], pz = S.z - m.p[2], pd = Math.hypot(px, py, pz) || 0.01;
+      const cosA = (px * dir[0] + py * dir[1] + pz * dir[2]) / pd;
+      if (pd < 15 && cosA > Math.cos(0.32) && los(S.level, m.p[0], m.p[1], m.p[2], S.x, S.y + 1.2, S.z)) {
         hurt(24 * dt, 'fire');
         flashCol[0] = 1.0; flashCol[1] = 0.45; flashCol[2] = 0.05;
-        if (Math.random() < dt * 2) log('You are engulfed in flame!', 'bad');
+        if (!c.burnMsg) { c.burnMsg = true; log('You are engulfed in flame!', 'bad'); }
       }
       if (c.st <= 0) { c.state = 'stalk'; c.cool = 2.4 + Math.random() * 1.6; }
       break;
@@ -373,7 +466,7 @@ function updateProjectiles(dt) {
     for (const c of creatures) {
       if (c.state === 'dying') continue;
       let hit;
-      if (c.type === 'wyrm') hit = Math.hypot(p.x - c.x, p.z - c.z) < 2.3 * c.scale / 1.3 && p.y > c.y && p.y < c.y + 3.5;
+      if (c.type === 'wyrm') hit = Math.hypot(p.x - c.x, p.z - c.z) < 1.3 * c.scale && p.y > c.y && p.y < c.y + 2.2 * c.scale;
       else {
         const top = c.y + (c.type === 'shade' ? 2.3 : 1.45 * (c.scale || 1));
         hit = Math.hypot(p.x - c.x, p.z - c.z) < (c.type === 'shade' ? 0.9 : 0.8) && p.y > c.y - 0.1 && p.y < top;
@@ -426,53 +519,14 @@ function drawGloom(c) {
   drawPart('gk_leg', 'SKIN', m4chain(root, m4t(-0.11, hip, 0), m4rx(-P.legL)), light, glow);
   drawPart('gk_leg', 'SKIN', m4chain(root, m4t(0.11, hip, 0), m4rx(-P.legR)), light, glow);
 }
-function poseWyrm(c) {
-  const awake = c.state !== 'sleep';
-  const mv = Math.min(1, (c.speed || 0) / 1.5);
-  const P = { neck: -0.45, head: 0.5, jaw: 0.06, bodyPitch: 0, breathe: Math.sin(c.t * (awake ? 2.4 : 1.1)) * (awake ? 0.05 : 0.08),
-    tail: Math.sin(c.t * (awake ? 1.6 : 0.6)) * (awake ? 0.35 : 0.15), wing: awake ? 0.35 + Math.sin(c.t * 1.4) * 0.08 : 0.05,
-    headYaw: 0, roll: 0, sink: 0, mouth: 0, legs: mv, low: 0 };
-  if (awake && c.state !== 'dying' && c.state !== 'return') P.headYaw = clamp(angWrap(Math.atan2(S.x - c.x, S.z - c.z) - c.face), -0.6, 0.6);
-  switch (c.state) {
-    case 'sleep': P.neck = 0.25; P.head = -0.15; P.low = -0.35; P.jaw = 0; break;
-    case 'roar': { const t = progress(c, 1.5); P.neck = -1.05; P.head = 0.25; P.jaw = 0.85 * Math.sin(Math.PI * t); P.wing = 0.35 + 0.9 * Math.sin(Math.PI * t); break; }
-    case 'breathW': { const t = ease(progress(c, 1.0)); P.neck = lerp(-0.45, -1.15, t); P.head = lerp(0.5, 0.15, t); P.jaw = 0.3 * t; P.mouth = t; P.wing = 0.35 + 0.5 * t; break; }
-    case 'breath': P.neck = -0.55; P.head = 0.6; P.jaw = 0.8; P.mouth = 1; P.wing = 0.6; break;
-    case 'biteW': { const t = ease(progress(c, 0.55)); P.neck = lerp(-0.45, -1.0, t); P.head = lerp(0.5, 0.2, t); P.jaw = 0.7 * t; break; }
-    case 'bite': { const t = ease(progress(c, 0.3) * 2); P.neck = lerp(-1.0, 0.25, t); P.head = lerp(0.2, 0.55, t); P.jaw = lerp(0.7, 0.0, t); break; }
-    case 'tailW': { const t = ease(progress(c, 0.5)); P.tail = -1.0 * t; break; }
-    case 'tail': { const t = ease(progress(c, 0.4)); P.tail = lerp(-1.0, 1.4, t); break; }
-    case 'dying': { const t = ease(c.dieT / 1.4); P.roll = 1.35 * t; P.neck = lerp(-0.45, 0.4, t); P.head = 0.6; P.jaw = 0.45; P.wing = 0.05; P.sink = Math.max(0, c.dieT - 1.6) * 0.6; P.legs = 0; break; }
-  }
-  if (c.flinch > 0) { P.bodyPitch -= c.flinch * 0.5; P.neck -= c.flinch * 1.2; }
-  return P;
-}
-function wyrmMatrices(c, P) {
-  const root = m4trs(c.x, c.y - P.sink, c.z, c.face, 0, P.roll, c.scale);
-  const body = m4chain(root, m4t(0, 1.25 + P.breathe + P.low, 0), m4rx(P.bodyPitch));
-  const neck = m4chain(body, m4t(0, 0.35, 1.75), m4rx(P.neck));
-  const head = m4chain(neck, m4t(0, 0, 1.35), m4ry(P.headYaw), m4rx(P.head));
-  return { root, body, neck, head };
-}
 function drawWyrm(c) {
-  const P = poseWyrm(c), M = wyrmMatrices(c, P);
-  const light = sampleLight(c.x, c.y + 2, c.z), glow = c.flashT > 0 ? c.flashT * 2 : 0;
-  const lit = [light[0] + 0.05, light[1] + 0.03, light[2] + 0.02];
-  drawPart('wy_body', 'SCALES', M.body, lit, glow);
-  for (const [sx, sz, ph] of [[-0.75, 1.0, 0], [0.75, 1.0, Math.PI], [-0.75, -1.0, Math.PI], [0.75, -1.0, 0]]) {
-    drawPart('wy_leg', 'SCALES', m4chain(M.body, m4t(sx, -0.4 - P.low * 0.6, sz), m4rx(Math.sin(c.walk + ph) * 0.5 * P.legs)), lit, glow);
-  }
-  drawPart('wy_neck', 'SCALES', M.neck, lit, glow);
-  drawPart('wy_head', 'SCALES', M.head, lit, glow);
-  drawPart('wy_jaw', 'SCALES', m4chain(M.head, m4t(0, -0.1, 0.12), m4rx(P.jaw)), lit, glow);
-  if (P.mouth > 0) drawPart('wy_mouth', 'FIRE', m4chain(M.head, m4t(0, -0.1, 0.12), m4rx(P.jaw * 0.5)), lit, P.mouth);
-  const t1 = m4chain(M.body, m4t(0, 0.1, -1.85), m4ry(P.tail), m4rx(0.12));
-  const t2 = m4chain(t1, m4t(0, 0, -1.5), m4ry(P.tail * 0.8), m4s(0.8));
-  drawPart('wy_tail', 'SCALES', t1, lit, glow);
-  drawPart('wy_tail', 'SCALES', t2, lit, glow);
-  drawPart('wy_tailtip', 'SCALES', m4chain(t2, m4t(0, 0, -1.5), m4ry(P.tail * 0.6)), lit, glow);
-  drawPart('wy_wingL', 'SCALES', m4chain(M.body, m4t(-0.55, 0.75, 0.4), m4rz(-P.wing)), lit, glow);
-  drawPart('wy_wingR', 'SCALES', m4chain(M.body, m4t(0.55, 0.75, 0.4), m4rz(P.wing)), lit, glow);
+  const [anim, t, loop, breathe] = wyrmClip(c);
+  Dragon.sample(anim, t, loop);
+  let M = wyrmModelMatrix(c);
+  if (breathe) M = m4mul(M, m4s(1 + Math.sin(c.t * 1.2) * 0.012));
+  const light = sampleLight(c.x, c.y + 2, c.z);
+  const glow = (c.flashT > 0 ? c.flashT * 2 : 0) + (c.state === 'breathW' ? 0.25 * (1 - c.st) : c.state === 'breath' ? 0.2 : 0);
+  Dragon.draw(M, [light[0] + 0.06, light[1] + 0.035, light[2] + 0.025], glow);
 }
 function drawCreatures() {
   for (const c of creatures) {

@@ -68,3 +68,8 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 | `js/game.js` | player, parser, creatures, lamp, map, save/load, HUD |
 | `js/combat.js` | creatures, jointed-model animation, melee, knockback, the Cinder Wyrm |
 | `js/autopilot.js` | the AI player: memory, frontier exploration, GOAP planner, A* pathfinding |
+
+## Credits
+
+- Dragon model: **"Animated Monsters" by Quaternius**, CC0 1.0 (public domain), https://quaternius.com. Its skeletal animations were baked into per-vertex keyframes, Quake-style, and recoloured with the game's procedural textures.
+- Everything else (textures, models, sound, levels) is generated in code.
