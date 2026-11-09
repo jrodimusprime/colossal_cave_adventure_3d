@@ -297,7 +297,7 @@ function updateEnvironment(dt, g, moving) {
       darkTimer += Math.hypot(S.vx, S.vz) * dt;          // metres walked blind
       if (darkTimer >= DARK_MOVE) {
         darkTimer -= DARK_MOVE; darkMoves++;
-        if (darkMoves >= 2 && Math.random() < PIT_KILL) {
+        if (darkMoves >= 1 && Math.random() < PIT_KILL) {
           die(['You stumble blindly in the dark and pitch headlong into a hole. That was careless.',
             'Your foot comes down on nothing at all. You fall into a pit and land very, very badly.',
             'In the darkness you walk straight off the edge of a pit. You were warned.'][Math.floor(Math.random() * 3)]); return;
@@ -1430,7 +1430,7 @@ function update(dt, stream = true) {
   if (mode !== 'play') return;
   if (S.lampOn && S.fuel > 0) {
     const before = S.fuel;
-    S.fuel = Math.max(0, S.fuel - dt / 7);
+    S.fuel = Math.max(0, S.fuel - dt / 4.5);
     if (before > 25 && S.fuel <= 25) log('Your lamp is getting dim. You had better find some oil, or head back to camp.', 'warn');
     if (before > 10 && S.fuel <= 10) log('Your lamp flickers ominously. It will not last much longer!', 'bad');
     if (S.fuel <= 0) { S.lampOn = false; Sfx.lamp(false); log('Your lamp sputters and goes out. Darkness swallows you whole.', 'bad'); }

@@ -18,8 +18,8 @@ function progress(c, dur) { return clamp(1 - c.st / dur, 0, 1); }
 
 // ---- spawning ----------------------------------------------------------------
 function makeGloom(x, z, y) {
-  const hp = S.level >= 7 ? 3 : S.level >= 4 ? 2 : 1;
-  return { type: 'gloom', x, z, y, t: 0, hp, maxHp: hp, scale: 1.05 + 0.13 * (hp - 1), cool: 2 + Math.random() * 2, melee: 0,
+  const hp = S.level >= 5 ? 3 : S.level >= 2 ? 2 : 1;
+  return { type: 'gloom', x, z, y, t: 0, hp, maxHp: hp, scale: 1.05 + 0.13 * (hp - 1), cool: 1.2 + Math.random() * 1.5, melee: 0, farT: 0,
     seen: false, strafe: Math.random() < 0.5 ? 1 : -1, life: 1e9, face: 0, ph: Math.random() * 6, state: 'move', st: 0,
     walk: 0, speed: 0, kx: 0, kz: 0, flashT: 0 };
 }
@@ -38,10 +38,14 @@ function spawnLogic(dt) {
   if (S.level < 1 || S.closing) return;
   spawnTimer -= dt;
   if (spawnTimer > 0) return;
-  spawnTimer = 7 + Math.random() * 10;
+  spawnTimer = 6 + Math.random() * 6;
   const glooms = creatures.filter(c => c.type === 'gloom').length;
-  const maxG = Math.min(5, 1 + Math.floor(S.level / 2));
-  if (glooms < maxG && Math.random() < Math.min(0.65, 0.2 + S.level * 0.05)) spawnCreature('gloom');
+  const maxG = Math.min(5, 1 + Math.ceil(S.level / 2));
+  if (glooms < maxG && Math.random() < Math.min(0.75, 0.3 + S.level * 0.06)) {
+    spawnCreature('gloom');
+    // deeper down they hunt in pairs
+    if (S.level >= 4 && glooms + 1 < maxG && Math.random() < 0.3) spawnCreature('gloom');
+  }
   if (S.level >= 2 && !creatures.some(c => c.type === 'shade') && S.inv.some(i => i.kind === 'treasure') && Math.random() < 0.12) spawnCreature('shade');
 }
 function spawnCreature(type) {
@@ -135,8 +139,9 @@ function throwKnife(c) {
     return;
   }
   // Like the original's dwarves: the first volley always misses, and after that each knife has a fixed
-  // chance of flying true (12% on level 1, rising to 30%). True knives are aimed where you will be, so you
-  // can still dodge them; the rest go visibly wide. Three hits will kill you.
+  // chance of flying true (12% on level 1, rising to 32%). True knives are aimed where you will be, so you
+  // can still dodge them; the rest go visibly wide. Three hits will kill you; two
+  // will leave you barely standing.
   const dist = Math.hypot(S.x - ox, S.z - oz), lead = dist / 16;
   const tx = S.x + S.vx * lead, ty = S.y + 1.1, tz = S.z + S.vz * lead;
   let dx = tx - ox, dy = ty - oy, dz = tz - oz;
@@ -146,7 +151,8 @@ function throwKnife(c) {
   const truth = S.knives > 0 && Math.random() < p;
   S.knives++;
   if (!truth) {
-    const side = (Math.random() < 0.5 ? 1 : -1) * (0.09 + Math.random() * 0.12), c0 = Math.cos(side), s0 = Math.sin(side);
+    // a miss passes at least a metre wide, however close the thrower is
+    const side = (Math.random() < 0.5 ? 1 : -1) * Math.atan2(1.1 + Math.random() * 1.2, dist), c0 = Math.cos(side), s0 = Math.sin(side);
     [dx, dz] = [dx * c0 - dz * s0, dx * s0 + dz * c0];
     dy += (Math.random() - 0.3) * 0.12;
   }
@@ -155,7 +161,7 @@ function throwKnife(c) {
   knifeMsgT -= 1;
   if (knifeMsgT <= 0) { knifeMsgT = 4; log('A knife whistles out of the darkness!', 'warn'); }
 }
-function knifeAccuracy() { return Math.min(0.3, 0.12 + 0.02 * Math.max(0, S.level - 1)); }
+function knifeAccuracy() { return Math.min(0.32, 0.12 + 0.025 * Math.max(0, S.level - 1)); }
 // gloomkins hunt you through the passages, like the original's dwarves following you from room to room
 function chaseDir(c, dt) {
   c.pathT = (c.pathT || 0) - dt;
@@ -214,7 +220,7 @@ function updateGloom(c, dt, d, dx, dz, see) {
       else if (d >= 2.2) { mx = -dz / d * c.strafe * 0.6; mz = dx / d * c.strafe * 0.6; if (Math.random() < dt * 0.4) c.strafe *= -1; }
       if (see && d < 22 && d > 2.6) {
         c.cool -= dt;
-        if (c.cool <= 0) { c.cool = 2.4 + Math.random() * 2.2; c.state = 'windup'; c.st = 0.6; Sfx.grunt(panFor(c.x, c.z)); }
+        if (c.cool <= 0) { c.cool = 2.0 + Math.random() * 1.8; c.state = 'windup'; c.st = 0.6; Sfx.grunt(panFor(c.x, c.z)); }
       }
       c.melee -= dt;
       if (d < 1.9 && c.melee <= 0) { c.melee = 1.6; c.state = 'lunge'; c.st = 0.38; Sfx.grunt(panFor(c.x, c.z)); }
@@ -460,6 +466,8 @@ function updateCreatures(dt) {
       continue;
     }
     const dx = S.x - c.x, dz = S.z - c.z, d = Math.hypot(dx, dz) || 0.001;
+    // a gloomkin that never found you wanders off, making room for one that will
+    if (c.type === 'gloom') { c.farT = d > 32 ? (c.farT || 0) + dt : 0; if (c.farT > 15) { creatures.splice(i, 1); continue; } }
     if (d > 60 || c.life < 0) {
       if (c.type === 'shade' && d < 30) log('The laughter fades away into the dark.', 'dim');
       creatures.splice(i, 1); continue;
@@ -497,7 +505,7 @@ function updateProjectiles(dt) {
       if (Math.hypot(p.x - S.x, p.y - (S.y + 1.0), p.z - S.z) < 0.75) {
         projectiles.splice(i, 1);
         log(['The knife slashes your arm!', 'Ouch! A knife grazes your ribs.', 'A knife bites into your shoulder!'][Math.floor(Math.random() * 3)], 'bad');
-        hurt(30 + Math.floor(Math.random() * 15), 'knife');
+        hurt(38 + Math.floor(Math.random() * 13), 'knife');
       }
       continue;
     }

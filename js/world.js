@@ -475,7 +475,7 @@ function populate(ch, rng) {
         if (!connected()) { ch.kind[idx] = 1; ch.floor[idx] = f; return false; }
         ch.flags[idx] |= F_OCC; return true;
       };
-      const nh = Math.min(4, rng.int(0, 1 + Math.floor(L / 2)));
+      const nh = Math.min(5, rng.int(1, 2 + Math.floor(L / 2)));
       for (let h = 0; h < nh; h++) {
         const p = take(cells, ok, 0);
         if (!p) continue;
@@ -484,7 +484,7 @@ function populate(ch, rng) {
         const i = p.idx % CHUNK, j = (p.idx / CHUNK) | 0;
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           const a = i + dx, b = j + dz, k = b * CHUNK + a;
-          if (a >= 0 && b >= 0 && a < CHUNK && b < CHUNK && ch.room[k] === ri && ok(k) && rng.chance(0.35)) hole(k);
+          if (a >= 0 && b >= 0 && a < CHUNK && b < CHUNK && ch.room[k] === ri && ok(k) && rng.chance(0.45)) hole(k);
         }
       }
       for (let k = cells.length - 1; k >= 0; k--) if (ch.kind[cells[k]] !== 1) cells.splice(k, 1);

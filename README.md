@@ -49,12 +49,13 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 
 The danger is tuned on the original's own numbers (from its source code): a dwarf's knife had a fixed **9.5%** chance per throw of killing you outright (after a first volley that always missed), and every move in pitch darkness carried a **35%** chance of a fatal fall into a pit.
 
-- **Pits are real.** Below the surface, room floors are pocked with holes, more of them the deeper you go (about 2 hole cells per chunk on level 1, 8 or more from level 6). By lamplight they are easy to see and avoid; in the dark you will find them the hard way. Holes never block a route.
-- **Darkness uses the original rule.** The first stretch you walk blind is free; after that every ~8 m of blind walking is a "move" with a 35% chance of falling into a pit. Standing still is safe. Measured: about 7-9 seconds (30-40 m) of blind walking, on average, before you die.
-- **Knives fly true 12% of the time on level 1, rising to 30% deeper**, the rest go visibly wide. True knives lead their target, so moving can still dodge them. Three hits kill.
-- **Gloomkins hunt you** through the passages rather than getting stuck behind walls.
+- **Pits are real.** Below the surface, most rooms have holes in the floor: about 7 hole cells per chunk on level 1, 10 on level 3, 14 by level 6. By lamplight they are easy to see and avoid; in the dark you will find them the hard way. Holes never block a route.
+- **Darkness uses the original rule.** You get a warning when it goes pitch dark; after that every ~8 m of blind walking is a "move" with a 35% chance of falling into a pit. Standing still is safe. Measured: on average 5-12 seconds of blind walking before you die.
+- **The lamp runs out.** A full lamp lasts about 7½ minutes, so oil flasks and trips back to the camp barrel matter.
+- **Knives fly true 12% of the time on level 1, rising to 32% deeper**; the rest pass at least a metre wide. True knives lead their target, so moving can still dodge them. Three hits kill.
+- **Gloomkins hunt you.** They pathfind through the passages, come more often the deeper you go (in pairs from level 4), take two axe blows from level 2 and three from level 5, and give up and wander off if they never find you.
 
-Measured over long simulated runs: a player who just stands there under attack dies about every 2 minutes on level 1 and every 15-20 seconds on level 6; a careless wanderer who never looks down dies about every 1.5 minutes on level 1 (falls and knives) and every 30 seconds by level 6. A careful player who keeps their lamp lit, fights back and goes home to heal survives much longer.
+Measured over 20-minute simulated runs per depth, a player who keeps the lamp lit, steps around the holes and fights back (but never dodges or goes home to heal) dies roughly every 5-10 minutes in the upper levels and every 1-5 minutes deeper down. Walking in the dark kills within seconds. You get three reincarnations, as in the original.
 
 ## Controls
 
