@@ -45,6 +45,17 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 - **Reactive priorities sit on top**: fighting, refuelling, eating, fetching its axe, going home when the pack is full, and running for camp when the cave starts to close.
 - **Paths are A\*** over the cave grid, with clearance around stalagmites, columns and rocks.
 
+## How dangerous is it?
+
+The danger is tuned on the original's own numbers (from its source code): a dwarf's knife had a fixed **9.5%** chance per throw of killing you outright (after a first volley that always missed), and every move in pitch darkness carried a **35%** chance of a fatal fall into a pit.
+
+- **Pits are real.** Below the surface, room floors are pocked with holes, more of them the deeper you go (about 2 hole cells per chunk on level 1, 8 or more from level 6). By lamplight they are easy to see and avoid; in the dark you will find them the hard way. Holes never block a route.
+- **Darkness uses the original rule.** The first stretch you walk blind is free; after that every ~8 m of blind walking is a "move" with a 35% chance of falling into a pit. Standing still is safe. Measured: about 7-9 seconds (30-40 m) of blind walking, on average, before you die.
+- **Knives fly true 12% of the time on level 1, rising to 30% deeper**, the rest go visibly wide. True knives lead their target, so moving can still dodge them. Three hits kill.
+- **Gloomkins hunt you** through the passages rather than getting stuck behind walls.
+
+Measured over long simulated runs: a player who just stands there under attack dies about every 2 minutes on level 1 and every 15-20 seconds on level 6; a careless wanderer who never looks down dies about every 1.5 minutes on level 1 (falls and knives) and every 30 seconds by level 6. A careful player who keeps their lamp lit, fights back and goes home to heal survives much longer.
+
 ## Controls
 
 | Key | Action |

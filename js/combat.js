@@ -134,17 +134,40 @@ function throwKnife(c) {
     c.state = 'flee'; c.life = 4;
     return;
   }
-  const tx = S.x + S.vx * 0.5, ty = S.y + 1.1, tz = S.z + S.vz * 0.5;
+  // Like the original's dwarves: the first volley always misses, and after that each knife has a fixed
+  // chance of flying true (12% on level 1, rising to 30%). True knives are aimed where you will be, so you
+  // can still dodge them; the rest go visibly wide. Three hits will kill you.
+  const dist = Math.hypot(S.x - ox, S.z - oz), lead = dist / 16;
+  const tx = S.x + S.vx * lead, ty = S.y + 1.1, tz = S.z + S.vz * lead;
   let dx = tx - ox, dy = ty - oy, dz = tz - oz;
   const d = Math.hypot(dx, dy, dz) || 1;
   dx /= d; dy /= d; dz /= d;
-  const spread = S.knives === 0 ? 0.25 : 0.06;   // the very first knife always misses
+  const p = knifeAccuracy();
+  const truth = S.knives > 0 && Math.random() < p;
   S.knives++;
-  dx += (Math.random() - 0.5) * spread + (S.knives === 1 ? 0.2 : 0); dy += (Math.random() - 0.5) * spread * 0.5 + 0.03; dz += (Math.random() - 0.5) * spread;
-  projectiles.push({ type: 'knife', x: ox, y: oy, z: oz, vx: dx * 16, vy: dy * 16, vz: dz * 16, life: 3, spin: 0 });
+  if (!truth) {
+    const side = (Math.random() < 0.5 ? 1 : -1) * (0.09 + Math.random() * 0.12), c0 = Math.cos(side), s0 = Math.sin(side);
+    [dx, dz] = [dx * c0 - dz * s0, dx * s0 + dz * c0];
+    dy += (Math.random() - 0.3) * 0.12;
+  }
+  projectiles.push({ type: 'knife', x: ox, y: oy, z: oz, vx: dx * 16, vy: dy * 16 + 0.3, vz: dz * 16, life: 3, spin: 0 });
   Sfx.whoosh();
   knifeMsgT -= 1;
   if (knifeMsgT <= 0) { knifeMsgT = 4; log('A knife whistles out of the darkness!', 'warn'); }
+}
+function knifeAccuracy() { return Math.min(0.3, 0.12 + 0.02 * Math.max(0, S.level - 1)); }
+// gloomkins hunt you through the passages, like the original's dwarves following you from room to room
+function chaseDir(c, dt) {
+  c.pathT = (c.pathT || 0) - dt;
+  if (!c.path || c.pathT <= 0) {
+    c.pathT = 1.5 + Math.random();
+    c.path = findPath(S.level, c.x, c.z, S.x, S.z, 1, 2500, c.y);
+    c.pi = 0;
+  }
+  if (!c.path || !c.path.length) return null;
+  while (c.pi < c.path.length - 1 && Math.hypot(c.path[c.pi][0] - c.x, c.path[c.pi][1] - c.z) < 0.8) c.pi++;
+  const w = c.path[c.pi], wx = w[0] - c.x, wz = w[1] - c.z, wd = Math.hypot(wx, wz) || 1;
+  return [wx / wd, wz / wd];
 }
 function moveCreature(c, mx, mz, spd, dt, radius) {
   const ox = c.x, oz = c.z;
@@ -185,7 +208,8 @@ function updateGloom(c, dt, d, dx, dz, see) {
     case 'flee': mx = -dx / d; mz = -dz / d; break;
     default: {
       const ideal = lampLevel() > 0 ? 10 : 3;
-      if (!see || d > ideal + 3) { mx = dx / d; mz = dz / d; }
+      if (!see) { const cd = chaseDir(c, dt); if (cd) { mx = cd[0]; mz = cd[1]; } else { mx = dx / d; mz = dz / d; } }
+      else if (d > ideal + 3) { mx = dx / d; mz = dz / d; c.path = null; }
       else if (d < ideal - 3 && d > 2.2) { mx = -dx / d * 0.7; mz = -dz / d * 0.7; }
       else if (d >= 2.2) { mx = -dz / d * c.strafe * 0.6; mz = dx / d * c.strafe * 0.6; if (Math.random() < dt * 0.4) c.strafe *= -1; }
       if (see && d < 22 && d > 2.6) {
@@ -473,7 +497,7 @@ function updateProjectiles(dt) {
       if (Math.hypot(p.x - S.x, p.y - (S.y + 1.0), p.z - S.z) < 0.75) {
         projectiles.splice(i, 1);
         log(['The knife slashes your arm!', 'Ouch! A knife grazes your ribs.', 'A knife bites into your shoulder!'][Math.floor(Math.random() * 3)], 'bad');
-        hurt(15 + Math.floor(Math.random() * 14), 'knife');
+        hurt(30 + Math.floor(Math.random() * 15), 'knife');
       }
       continue;
     }

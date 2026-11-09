@@ -33,6 +33,8 @@ let mouseDX = 0, mouseDY = 0;
 let fade = 1, fadeTarget = 0, flash = 0;
 const flashCol = [0.75, 0.06, 0.02];
 let gameTime = 0, lastFrame = 0;
+const DARK_MOVE = 8, PIT_KILL = 0.35;   // the original: 35% chance of a fatal fall per move in the dark
+let darkMoves = 0;
 let spawnTimer = 25, darkTimer = 0, darkWarned = false, lavaT = 0, knifeMsgT = 0, healMsgT = 0;
 let interactTarget = null, hudT = 0, mapT = 0, bobPhase = 0, bobAmt = 0, stepAcc = 0, throwAnim = 0, wasWet = false;
 let pending = null;
@@ -256,7 +258,12 @@ function updateEnvironment(dt, g, moving) {
   if (g.kind === 2) {
     const drop = (S.lastSafe ? S.lastSafe.y : S.y) - S.y;
     if (g.flags & F_SHAFTDOWN) { if (drop > 6) { shaftFall(g); return; } }
-    else if (drop > 14) { die('You plunge into the chasm. The fall goes on for a very long time, and then, abruptly, it doesn\'t.'); return; }
+    else if (drop > 14) {
+      const chasm = g.room >= 0 && g.ch.rooms[g.room].type === 'chasm';
+      die(chasm ? 'You plunge into the chasm. The fall goes on for a very long time, and then, abruptly, it doesn\'t.'
+        : 'The floor simply isn\'t there. You fall a long, long way, and land very badly indeed.');
+      return;
+    }
   }
   if ((g.flags & F_LAVA) && S.y < g.liquid + 0.3) {
     hurt(40 * dt, 'lava');
@@ -285,14 +292,20 @@ function updateEnvironment(dt, g, moving) {
   // darkness: the classic way to die
   const dark = lampLevel() === 0 && ambientLum(S.x, S.y + 1, S.z) < 0.12;
   if (dark) {
-    if (!darkWarned) { darkWarned = true; log('It is pitch dark. Every step you take could be your last.', 'bad'); }
+    if (!darkWarned) { darkWarned = true; darkTimer = 0; darkMoves = 0; log('It is pitch dark. Blunder on blindly and you will very probably fall into a pit.', 'bad'); }
     if (moving) {
-      darkTimer += dt;
-      if (darkTimer > 4 && Math.random() < 0.05 * dt) {
-        die('You stumble blindly in the dark and pitch headlong into an unseen hole. That was careless.'); return;
+      darkTimer += Math.hypot(S.vx, S.vz) * dt;          // metres walked blind
+      if (darkTimer >= DARK_MOVE) {
+        darkTimer -= DARK_MOVE; darkMoves++;
+        if (darkMoves >= 2 && Math.random() < PIT_KILL) {
+          die(['You stumble blindly in the dark and pitch headlong into a hole. That was careless.',
+            'Your foot comes down on nothing at all. You fall into a pit and land very, very badly.',
+            'In the darkness you walk straight off the edge of a pit. You were warned.'][Math.floor(Math.random() * 3)]); return;
+        }
+        if (darkMoves === 1) log('You shuffle forward through the blackness, arms out. Pebbles skitter away into nothing.', 'warn');
       }
     }
-  } else { darkWarned = false; darkTimer = 0; }
+  } else { darkWarned = false; darkTimer = 0; darkMoves = 0; }
 }
 function markDiscovered(r) {
   const gx = Math.floor(S.x / CELL), gz = Math.floor(S.z / CELL);

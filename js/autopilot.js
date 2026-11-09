@@ -127,7 +127,7 @@ class MinHeap {
 }
 const OFF = 1 << 20, KM = 1 << 21;
 const STEP_UP = 2.2;   // max rise between neighbouring cell centres (ledges are 3.4)
-function findPath(L, sx, sz, tx, tz, arriveCells, maxNodes) {
+function findPath(L, sx, sz, tx, tz, arriveCells, maxNodes, startY = S.y) {
   const sgx = Math.floor(sx / CELL), sgz = Math.floor(sz / CELL), tgx = Math.floor(tx / CELL), tgz = Math.floor(tz / CELL);
   const key = (x, z) => (x + OFF) * KM + (z + OFF);
   const h = (x, z) => { const dx = Math.abs(x - tgx), dz = Math.abs(z - tgz); return Math.max(dx, dz) + 0.414 * Math.min(dx, dz); };
@@ -146,7 +146,7 @@ function findPath(L, sx, sz, tx, tz, arriveCells, maxNodes) {
       return out.reverse();
     }
     if (++n > maxNodes) return null;
-    const f0 = k === sk ? S.y : aiFloor(L, x, z);
+    const f0 = k === sk ? startY : aiFloor(L, x, z);
     const gk = g.get(k);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       if (!dx && !dz) continue;

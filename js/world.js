@@ -439,9 +439,57 @@ function populate(ch, rng) {
   rooms.forEach((room, ri) => {
     room.name = roomName(room, rng);
     room.descIdx = rng.int(0, 999);
-    const cells = room.cells, n = cells.length;
+    const cells = room.cells;
     if (room.type === 'camp') { campSetup(ch, room, light); return; }
     const edge = idx => ch.tval[idx] > 0.5 && notTun(idx);
+    // holes in the floor: easy to see by lamplight, deadly in the dark. Never on a
+    // tunnel's path through the room, so every route stays walkable.
+    if (L >= 1 && !['landing', 'lair', 'shrine', 'lake', 'lava', 'chasm'].includes(room.type)) {
+      const nearShaft = idx => {
+        const i = idx % CHUNK, j = (idx / CHUNK) | 0;
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+          const a = i + dx, b = j + dz;
+          if (a >= 0 && b >= 0 && a < CHUNK && b < CHUNK && (ch.flags[b * CHUNK + a] & (F_SHAFTDOWN | F_SHAFTUP))) return true;
+        }
+        return false;
+      };
+      const ok = idx => ch.kind[idx] === 1 && notTun(idx) && !(ch.flags[idx] & F_OCC) && ch.tval[idx] > 0.25 && ch.tval[idx] < 0.85 && !nearShaft(idx);
+      // a hole must never cut part of the room off from the rest
+      const connected = () => {
+        const open = cells.filter(c => ch.kind[c] === 1);
+        if (!open.length) return true;
+        const seen = new Set([open[0]]), q = [open[0]];
+        while (q.length) {
+          const c = q.pop(), i = c % CHUNK, j = (c / CHUNK) | 0;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const a = i + dx, b = j + dz, k = b * CHUNK + a;
+            if (a < 0 || b < 0 || a >= CHUNK || b >= CHUNK || seen.has(k) || ch.kind[k] !== 1) continue;
+            seen.add(k); q.push(k);
+          }
+        }
+        return open.every(c => seen.has(c));
+      };
+      const hole = idx => {
+        const f = ch.floor[idx];
+        ch.kind[idx] = 2; ch.floor[idx] = f - 40;
+        if (!connected()) { ch.kind[idx] = 1; ch.floor[idx] = f; return false; }
+        ch.flags[idx] |= F_OCC; return true;
+      };
+      const nh = Math.min(4, rng.int(0, 1 + Math.floor(L / 2)));
+      for (let h = 0; h < nh; h++) {
+        const p = take(cells, ok, 0);
+        if (!p) continue;
+        if (!hole(p.idx)) continue;
+        room.holes = true;
+        const i = p.idx % CHUNK, j = (p.idx / CHUNK) | 0;
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const a = i + dx, b = j + dz, k = b * CHUNK + a;
+          if (a >= 0 && b >= 0 && a < CHUNK && b < CHUNK && ch.room[k] === ri && ok(k) && rng.chance(0.35)) hole(k);
+        }
+      }
+      for (let k = cells.length - 1; k >= 0; k--) if (ch.kind[cells[k]] !== 1) cells.splice(k, 1);
+    }
+    const n = cells.length;
 
     // stalactites hang over anything
     const nT = Math.floor(n * (room.type === 'grotto' ? 0.12 : 0.08));
@@ -702,6 +750,7 @@ function describeRoom(ch, ri) {
   parts.push(list[room.descIdx % list.length]);
   if (room.type !== 'camp' && room.descIdx % 3 === 0) parts.push(reg.flavor[room.descIdx % reg.flavor.length]);
   if (room.ropeDown && room.type !== 'camp') parts.push('A knotted rope, tied off on a crude wooden frame, hangs down into a black shaft in the floor.');
+  if (room.holes) parts.push(['Black holes gape in the floor here and there. Mind your step.', 'The floor is pocked with sudden, bottomless holes.', 'Several dark pits break the floor. Pebbles you nudge into them never land.'][room.descIdx % 3]);
   if (room.chuteDown) parts.push('A smooth, steep chute plunges down through the floor, polished by who knows what. You could slide down it, but you would never climb back up.');
   if (room.type === 'camp') parts.push('Beside the fire, a knotted rope hangs down a black shaft into the deeper cave.');
   if (room.landing) parts.push(room.landing.chute ? 'High above, a chute opens in the ceiling, far too steep and slick to climb. There is no going back that way.'
