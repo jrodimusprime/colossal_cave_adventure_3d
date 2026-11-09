@@ -12,7 +12,7 @@
 // ---------------------------------------------------------------------------
 
 const F_TUNNEL = 1, F_LIQUID = 2, F_LAVA = 4, F_SKY = 8, F_SHAFTUP = 16, F_SHAFTDOWN = 32, F_OCC = 64, F_TALL = 128;
-const WORLD = { seed: 1 };
+const WORLD = { seed: 1, solved: new Set() };
 const CAMP = { x: 16, z: 16, shaftX: 13, shaftZ: 19, spawnX: 17, spawnZ: 19 };
 
 const REGIONS = [
@@ -64,9 +64,14 @@ function planBase(cx, cz, L) {
   let p = planCache.get(key);
   if (p) return p;
   if (planCache.size > 3000) planCache.clear();
+  const camp = L === 0 && cx === 0 && cz === 0;
+  if (!camp && L >= 1 && hash4(cx, cz, L, WORLD.seed ^ 0x3A2E) % 100 < 7) {
+    p = { rooms: [], shafts: [], maze: true };
+    planCache.set(key, p);
+    return p;
+  }
   const rng = new RNG(hash4(cx, cz, L, WORLD.seed));
   const rooms = [];
-  const camp = L === 0 && cx === 0 && cz === 0;
   if (camp) rooms.push(mkRoom('camp', CAMP.x, CAMP.z, 7, 30, rng));
   const target = rng.int(3, 5);
   for (let tries = 0; rooms.length < target && tries < 50; tries++) {
@@ -132,6 +137,7 @@ function genChunk(cx, cz, L) {
     cx, cz, L, kind: new Uint8Array(N), floor: new Float32Array(N), ceil: new Float32Array(N),
     room: new Int8Array(N).fill(-1), flags: new Uint8Array(N), liquid: new Float32Array(N), tval: new Float32Array(N).fill(9),
     rooms: [], items: [], features: [], props: [], lights: [], colliders: [],
+    puzzles: [], pblock: null, pbridge: null, maze: !!plan.maze,
   };
   const rooms = plan.rooms.map(r => Object.assign({}, r, { cells: [], exits: 0 }));
   if (L > 0) {
@@ -141,6 +147,7 @@ function genChunk(cx, cz, L) {
     }
   }
   ch.rooms = rooms;
+  if (plan.maze) carveMaze(ch, rng);
   rooms.forEach((room, ri) => {
     room.baseY = floorBase((cx * CHUNK + room.x) * CELL, (cz * CHUNK + room.z) * CELL, L);
     carveRoom(ch, room, ri);
@@ -156,7 +163,7 @@ function genChunk(cx, cz, L) {
   const inTree = [0], out = [];
   for (let i = 1; i < nodes.length; i++) out.push(i);
   const edges = [];
-  while (out.length) {
+  while (out.length && !plan.maze) {
     let best = 1e9, bi = -1, bo = -1;
     for (const a of inTree) for (let k = 0; k < out.length; k++) {
       const b = out[k], d = Math.hypot(nodes[a].x - nodes[b].x, nodes[a].z - nodes[b].z);
@@ -164,7 +171,7 @@ function genChunk(cx, cz, L) {
     }
     edges.push([bi, out[bo]]); inTree.push(out[bo]); out.splice(bo, 1);
   }
-  if (rng.chance(0.75)) {
+  if (!plan.maze && rng.chance(0.75)) {
     const a = rng.int(0, nodes.length - 1), b = rng.int(0, nodes.length - 1);
     if (a !== b) edges.push([a, b]);
   }
@@ -202,6 +209,8 @@ function genChunk(cx, cz, L) {
   }
 
   populate(ch, rng);
+  if (plan.maze) mazeHoard(ch, rng);
+  else maybeAddPuzzle(ch, rng);
   return ch;
 }
 
@@ -558,37 +567,39 @@ function campCenterPos() { return { x: CAMP.x * CELL, z: CAMP.z * CELL }; }
 // Corners are shared by everything that touches them, which keeps the mesh
 // watertight while letting walls be jittered into an organic, low-poly shape.
 function cornerData(L, gx, gz) {
-  let nOpen = 0, sumF = 0, nPit = 0, sumP = 0, nNS = 0, sumC = 0, maxC = -1e9, tall = false, sx = 0, sz = 0, nSolid = 0;
+  let nLedge = 0, sumL = 0, nOpen = 0, sumF = 0, nPit = 0, sumP = 0, nNS = 0, sumC = 0, maxC = -1e9, tall = false, sx = 0, sz = 0, nSolid = 0;
   for (let k = 0; k < 4; k++) {
     const ix = gx - 1 + (k & 1), iz = gz - 1 + (k >> 1);
     const ch = chunkAtGrid(L, ix, iz), idx = localIdx(ch, ix, iz), kind = ch.kind[idx];
     if (kind === 0) { nSolid++; sx += ix + 0.5 - gx; sz += iz + 0.5 - gz; continue; }
     nNS++; const c = ch.ceil[idx]; sumC += c; if (c > maxC) maxC = c;
     if (ch.flags[idx] & F_TALL) tall = true;
-    if (kind === 1) { nOpen++; sumF += ch.floor[idx]; } else { nPit++; sumP += ch.floor[idx]; }
+    if (kind === 1) { nOpen++; sumF += ch.floor[idx]; } else if (kind === 3) { nLedge++; sumL += ch.floor[idx]; } else { nPit++; sumP += ch.floor[idx]; }
   }
-  const fo = nOpen ? sumF / nOpen : (nPit ? sumP / nPit : 0);
+  const fl = nLedge ? sumL / nLedge : 0;
+  const fo = nOpen ? sumF / nOpen : (nPit ? sumP / nPit : fl);
   const fp = nPit ? sumP / nPit : fo;
   const h = hrand(gx, gz, L, WORLD.seed);
   let c = nNS ? (tall ? maxC : sumC / nNS + (h - 0.5) * 0.6) : 0;
   let jx = 0, jz = 0;
   if (nSolid > 0 && nSolid < 4) { const l = Math.hypot(sx, sz); if (l > 0.01) { jx = sx / l; jz = sz / l; } }
   const amt = (0.12 + 0.3 * h) * CELL;
-  return { gx, gz, x: gx * CELL + jx * amt, z: gz * CELL + jz * amt, fo, fp, c, jx, jz,
+  return { gx, gz, x: gx * CELL + jx * amt, z: gz * CELL + jz * amt, fo, fp, fl: nLedge ? fl : fo, c, jx, jz,
     bul: (0.1 + 0.35 * hrand(gx, gz, L, 99)) * CELL };
 }
 
 // floor / ceiling / cell info under a world-space point
 function groundInfo(L, x, z) {
   const gx = Math.floor(x / CELL), gz = Math.floor(z / CELL);
-  const ch = chunkAtGrid(L, gx, gz), idx = localIdx(ch, gx, gz), kind = ch.kind[idx];
+  const ch = chunkAtGrid(L, gx, gz), idx = localIdx(ch, gx, gz), kind = puzzleKind(ch, idx);
   const info = { kind, ch, idx, gx, gz, flags: ch.flags[idx], liquid: ch.liquid[idx], room: ch.room[idx], floor: 0, ceil: 0 };
   if (kind === 0) { info.floor = 1e9; info.ceil = -1e9; return info; }
+  const br = ch.pbridge && kind !== ch.kind[idx] ? ch.pbridge.get(idx) : null;
   const fx = x / CELL - gx, fz = z / CELL - gz;
   const c00 = cornerData(L, gx, gz), c10 = cornerData(L, gx + 1, gz), c01 = cornerData(L, gx, gz + 1), c11 = cornerData(L, gx + 1, gz + 1);
-  const f = kind === 2 ? 'fp' : 'fo';
+  const f = kind === 2 ? 'fp' : kind === 3 ? 'fl' : 'fo';
   const bil = (a, b, c, d) => (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz;
-  info.floor = bil(c00[f], c10[f], c01[f], c11[f]);
+  info.floor = br ? br.y : bil(c00[f], c10[f], c01[f], c11[f]);
   info.ceil = bil(c00.c, c10.c, c01.c, c11.c);
   return info;
 }
@@ -644,6 +655,14 @@ const DESC = {
   columns: ['You are in a forest of stone. Thick columns, where stalactites have met stalagmites over aeons, hold up the roof.',
     'Pillars of dripstone rise all around you, some as thick as old oaks.'],
   landing: ['You are at the bottom of a narrow shaft.', 'You are in a small chamber at the foot of a vertical shaft.'],
+  vault: ['You are in a small strongroom hewn from the living rock. Someone went to a great deal of trouble to keep people out of here.',
+    'This is a squat, square vault behind the iron gate. The walls bear chisel marks and, here and there, a scratched warning in no language you know.'],
+  den: ['You are in a snug burrow that smells of earth and old dinners. Shiny things have been carefully hoarded in a corner.',
+    'This is the mole\'s larder: a round, warm chamber lined with bedding, beetle shells and, oddly, treasure.'],
+  far: ['You are on the far side of the gap, in a little grotto that nobody has set foot in for a very long time.',
+    'You have crossed to a lonely chamber beyond the gap. The dust lies thick and undisturbed.'],
+  shelf: ['You are on a high, narrow shelf in the rock. The cavern floor is a long way down.',
+    'This is a hidden shelf high in the cavern wall, reachable only by something that grows.'],
   camp: ['You are in a great sinkhole open to the sky. Daylight spills down the mossy walls onto your camp: a battered trunk for treasure, a barrel of lamp oil and a smouldering fire. Dark passages lead off into the hillside.'],
 };
 const NUMW = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven'];
@@ -667,3 +686,199 @@ function describeRoom(ch, ri) {
 const PASSAGE_DESC = ['You are in a low, twisting passage.', 'You are in a narrow, winding tunnel.',
   'You are in a damp passage. Water trickles along the floor.', 'You are in a crooked passage whose walls press close on either side.',
   'You are in a passage that zigzags as if it could not make up its mind.', 'You are in a rough tunnel scored with ancient tool marks.'];
+
+// ---- puzzles: sealed pockets behind obstacles ------------------------------
+// After a chunk is carved, we may dig a small sealed chamber off one of its
+// rooms, joined by a one-cell-wide corridor, and put an obstacle in the way.
+// The thing that gets you past it is placed elsewhere in the same chunk.
+const POCKET_NAMES = {
+  vault: ['the Iron-Barred Vault', 'the Forgotten Strongroom', 'the Locked Treasury', 'the Miser\'s Cell'],
+  den: ['the Mole\'s Larder', 'the Burrow Hoard', 'the Warm Den'],
+  far: ['the Far Grotto', 'the Stranded Chamber', 'the Other Side'],
+  shelf: ['the High Shelf', 'the Overhang', 'the Hidden Ledge'],
+};
+function mkKey() { return { kind: 'key', name: 'brass key', mesh: 'key', mat: 'GOLD' }; }
+function mkPlanks() { return { kind: 'planks', name: 'bundle of planks', mesh: 'planks', mat: 'WOOD' }; }
+function mkSkin() { return { kind: 'skin', name: 'empty waterskin', mesh: 'skin', mat: 'CLOTH', full: false }; }
+function puzzleKind(ch, idx) {
+  const k = ch.kind[idx];
+  if (k === 2 && ch.pbridge) { const b = ch.pbridge.get(idx); if (b && WORLD.solved.has(b.id)) return 1; }
+  return k;
+}
+function puzzleBlocked(ch, idx) {
+  if (!ch.pblock) return false;
+  const id = ch.pblock.get(idx);
+  return !!id && !WORLD.solved.has(id);
+}
+function maybeAddPuzzle(ch, rng) {
+  const L = ch.L;
+  if (!rng.chance(L === 0 ? 0.25 : 0.42)) return;
+  let type = rng.pick(L === 0 ? ['gate', 'mole', 'gap'] : ['gate', 'mole', 'gap', 'vine', 'vine']);
+  const hasLake = ch.rooms.some(r => r.type === 'lake');
+  if (type === 'vine' && !hasLake) type = rng.pick(['gate', 'gap', 'mole']);
+  else if (hasLake && L >= 1 && rng.chance(0.5)) type = 'vine';
+  for (let tries = 0; tries < 40; tries++) if (tryPuzzle(ch, rng, type)) return;
+}
+function tryPuzzle(ch, rng, type) {
+  const L = ch.L, rooms = ch.rooms;
+  const ri = rng.int(0, rooms.length - 1), room = rooms[ri];
+  if (!room || room.pocket || ['camp', 'landing', 'lava', 'chasm', 'lake'].includes(room.type) || !room.cells.length) return false;
+  const dir = rng.pick([[1, 0], [-1, 0], [0, 1], [0, -1]]);
+  let x = clamp(Math.floor(room.x), 0, CHUNK - 1), z = clamp(Math.floor(room.z), 0, CHUNK - 1);
+  if (ch.kind[z * CHUNK + x] !== 1) return false;
+  for (let s = 0; ; s++) {
+    const nx = x + dir[0], nz = z + dir[1];
+    if (s > 20 || nx < 1 || nz < 1 || nx > CHUNK - 2 || nz > CHUNK - 2) return false;
+    if (ch.kind[nz * CHUNK + nx] === 0) break;
+    x = nx; z = nz;
+  }
+  const B = z * CHUNK + x;
+  if (ch.room[B] !== ri || ch.kind[B] !== 1 || (ch.flags[B] & (F_LIQUID | F_LAVA | F_SHAFTDOWN | F_SHAFTUP | F_OCC))) return false;
+  const vine = type === 'vine';
+  const LC = vine ? 2 : 4, PR = 2.2;
+  const ex = x + dir[0], ez = z + dir[1];
+  const pcx = ex + dir[0] * (LC + 2) + 0.5, pcz = ez + dir[1] * (LC + 2) + 0.5;
+  const solid = (i, j) => i >= 1 && j >= 1 && i <= CHUNK - 2 && j <= CHUNK - 2 && ch.kind[j * CHUNK + i] === 0;
+  const px = dir[1], pz = dir[0];
+  for (let k = 0; k < LC; k++) {
+    const i = ex + dir[0] * k, j = ez + dir[1] * k;
+    if (!solid(i, j) || !solid(i + px, j + pz) || !solid(i - px, j - pz)) return false;
+  }
+  const R2 = PR + 1.3;
+  for (let j = Math.floor(pcz - R2); j <= Math.floor(pcz + R2); j++) for (let i = Math.floor(pcx - R2); i <= Math.floor(pcx + R2); i++) {
+    if (Math.hypot(i + 0.5 - pcx, j + 0.5 - pcz) <= R2 && !solid(i, j)) return false;
+  }
+  // --- carve it
+  const base = ch.floor[B];
+  const pType = { gate: 'vault', mole: 'den', gap: 'far', vine: 'shelf' }[type];
+  const pri = rooms.length;
+  const proom = { type: pType, x: pcx, z: pcz, r: PR, h: 4.5, pocket: true, exits: 1, cells: [], seed: rng.int(0, 1e9),
+    descIdx: rng.int(0, 999), name: rng.pick(POCKET_NAMES[pType]), baseY: base };
+  rooms.push(proom);
+  const floorY = vine ? base + 3.4 : base, kind = vine ? 3 : 1;
+  const setCell = (i, j, r2, ceilH) => {
+    const idx = j * CHUNK + i;
+    ch.kind[idx] = kind; ch.floor[idx] = floorY; ch.ceil[idx] = floorY + ceilH;
+    ch.room[idx] = r2; ch.flags[idx] = F_OCC; ch.tval[idx] = 9;
+    return idx;
+  };
+  for (let k = 0; k < LC; k++) setCell(ex + dir[0] * k, ez + dir[1] * k, vine ? pri : -1, 3.4);
+  for (let j = Math.floor(pcz - PR); j <= Math.floor(pcz + PR); j++) for (let i = Math.floor(pcx - PR); i <= Math.floor(pcx + PR); i++) {
+    if (Math.hypot(i + 0.5 - pcx, j + 0.5 - pcz) > PR) continue;
+    proom.cells.push(setCell(i, j, pri, 4.4));
+  }
+  const W = (i, j) => [(ch.cx * CHUNK + i + 0.5) * CELL, (ch.cz * CHUNK + j + 0.5) * CELL];
+  const id = L + ':' + ch.cx + ':' + ch.cz + ':pz';
+  const [fx, fz] = W(ex, ez);
+  const pz0 = { id, type, dir, y: base, fx, fz, ri: pri };
+  if (type === 'gate' || type === 'mole') {
+    const oi = ex + dir[0], oj = ez + dir[1];
+    ch.pblock = new Map([[oj * CHUNK + oi, id]]);
+    [pz0.ox, pz0.oz] = W(oi, oj);
+    [pz0.rx, pz0.rz] = [pcx * CELL + ch.cx * CHUNK * CELL + px * 1.2, pcz * CELL + ch.cz * CHUNK * CELL + pz * 1.2];
+  } else if (type === 'gap') {
+    ch.pbridge = new Map();
+    for (const k of [1, 2]) {
+      const idx = (ez + dir[1] * k) * CHUNK + ex + dir[0] * k;
+      ch.kind[idx] = 2; ch.floor[idx] = base - 40;
+      ch.pbridge.set(idx, { id, y: base });
+    }
+    const a = W(ex + dir[0], ez + dir[1]), b = W(ex + dir[0] * 2, ez + dir[1] * 2);
+    pz0.ox = (a[0] + b[0]) / 2; pz0.oz = (a[1] + b[1]) / 2;
+  } else {
+    ch.flags[B] |= F_OCC;
+    // open up a tall alcove above the bulb so the shelf mouth has headroom
+    ch.ceil[B] = Math.max(ch.ceil[B], ch.floor[B] + 8);
+    for (const [ax, az] of [[px, pz], [-px, -pz], [-dir[0], -dir[1]]]) {
+      const j = (z + az) * CHUNK + x + ax;
+      if (ch.kind[j] === 1) ch.ceil[j] = Math.max(ch.ceil[j], ch.floor[j] + 6.5);
+    }
+    [pz0.bx, pz0.bz] = W(x, z);
+    pz0.ledgeY = floorY;
+  }
+  ch.puzzles.push(pz0);
+  // the reward
+  for (let k = 0; k < 2; k++) {
+    const idx = proom.cells[rng.int(0, proom.cells.length - 1)];
+    const t = mkTreasure(rng, L + 1);
+    t.value = Math.round(t.value * 1.5);
+    t.id = L + ':' + ch.cx + ':' + ch.cz + ':pt' + k;
+    t.x = (ch.cx * CHUNK + idx % CHUNK + 0.5 + rng.range(-0.3, 0.3)) * CELL; t.z = (ch.cz * CHUNK + Math.floor(idx / CHUNK) + 0.5 + rng.range(-0.3, 0.3)) * CELL;
+    t.y = floorY; t.ri = pri;
+    ch.items.push(t);
+  }
+  // the thing that solves it, somewhere else in this chunk
+  const sol = type === 'gate' ? mkKey() : type === 'mole' ? mkFood(rng) : type === 'gap' ? mkPlanks() : mkSkin();
+  const cands = rooms.filter(r => !r.pocket && r.cells.length);
+  for (let tries = 0; tries < 30 && cands.length; tries++) {
+    const r = rng.pick(cands), idx = rng.pick(r.cells);
+    if (ch.flags[idx] & F_OCC) continue;
+    ch.flags[idx] |= F_OCC;
+    sol.id = L + ':' + ch.cx + ':' + ch.cz + ':ps';
+    sol.x = (ch.cx * CHUNK + idx % CHUNK + 0.5) * CELL; sol.z = (ch.cz * CHUNK + Math.floor(idx / CHUNK) + 0.5) * CELL;
+    sol.y = ch.floor[idx]; sol.ri = rooms.indexOf(r);
+    ch.items.push(sol);
+    break;
+  }
+  return true;
+}
+
+// ---- the Tangle: maze chunks -------------------------------------------------
+function carveMaze(ch, rng) {
+  const L = ch.L, M = 15;
+  const open = (i, j) => {
+    if (i < 0 || j < 0 || i >= CHUNK || j >= CHUNK) return;
+    const idx = j * CHUNK + i;
+    if (ch.kind[idx]) return;
+    const wx = (ch.cx * CHUNK + i + 0.5) * CELL, wz = (ch.cz * CHUNK + j + 0.5) * CELL;
+    const base = floorBase(wx, wz, L);
+    ch.kind[idx] = 1; ch.floor[idx] = base;
+    ch.ceil[idx] = base + 3.3 + vnoise(wx * 0.5, wz * 0.5, WORLD.seed + 9) * 0.8;
+    ch.room[idx] = -1; ch.flags[idx] |= F_TUNNEL;
+  };
+  const seen = new Uint8Array(M * M);
+  const s0 = [rng.int(0, M - 1), rng.int(0, M - 1)], stack = [s0];
+  seen[s0[1] * M + s0[0]] = 1; open(s0[0] * 2 + 1, s0[1] * 2 + 1);
+  while (stack.length) {
+    const [i, j] = stack[stack.length - 1];
+    const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => {
+      const a = i + dx, b = j + dz;
+      return a >= 0 && b >= 0 && a < M && b < M && !seen[b * M + a];
+    });
+    if (!nb.length) { stack.pop(); continue; }
+    const [dx, dz] = rng.pick(nb), a = i + dx, b = j + dz;
+    seen[b * M + a] = 1;
+    open(i * 2 + 1 + dx, j * 2 + 1 + dz); open(a * 2 + 1, b * 2 + 1);
+    stack.push([a, b]);
+  }
+  for (let k = 0; k < 8; k++) {
+    const i = rng.int(0, M - 2), j = rng.int(0, M - 1);
+    if (rng.chance(0.5)) open(i * 2 + 2, j * 2 + 1); else open(j * 2 + 1, i * 2 + 2);
+  }
+  const pE = portalE(ch.cx, ch.cz, L), pW = portalE(ch.cx - 1, ch.cz, L), pS = portalS(ch.cx, ch.cz, L), pN = portalS(ch.cx, ch.cz - 1, L);
+  for (let i = 29; i < CHUNK; i++) open(i, pE);
+  for (let i = 0; i <= 1; i++) open(i, pW);
+  for (let j = 29; j < CHUNK; j++) open(pS, j);
+  for (let j = 0; j <= 1; j++) open(pN, j);
+}
+function mazeHoard(ch, rng) {
+  const ends = [];
+  for (let j = 1; j < CHUNK - 1; j++) for (let i = 1; i < CHUNK - 1; i++) {
+    const idx = j * CHUNK + i;
+    if (ch.kind[idx] !== 1 || ch.room[idx] >= 0 || (ch.flags[idx] & F_OCC)) continue;
+    let n = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (ch.kind[(j + dz) * CHUNK + i + dx]) n++;
+    if (n === 1) ends.push(idx);
+  }
+  const put = (it, tag) => {
+    if (!ends.length) return;
+    const idx = ends.splice(rng.int(0, ends.length - 1), 1)[0];
+    it.id = ch.L + ':' + ch.cx + ':' + ch.cz + ':' + tag;
+    it.x = (ch.cx * CHUNK + idx % CHUNK + 0.5) * CELL; it.z = (ch.cz * CHUNK + Math.floor(idx / CHUNK) + 0.5) * CELL;
+    it.y = ch.floor[idx]; it.ri = -1;
+    ch.items.push(it);
+  };
+  for (let k = 0; k < 3; k++) { const t = mkTreasure(rng, ch.L + 1); t.value = Math.round(t.value * 1.4); put(t, 'm' + k); }
+  put(mkOil(), 'mo');
+}
+const MAZE_DESC = 'You are in a tangle of cramped tunnels, each one indistinguishable from the last.';

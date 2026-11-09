@@ -17,7 +17,7 @@ const AI_SPEED = 5;
 const AI = {
   on: false, goal: null, path: null, pi: 0, level: -1, stack: [], unreachable: new Set(),
   thinkT: 0, stuckT: 0, stuckN: 0, lastX: 0, lastZ: 0, deadT: 0, chatT: 40, aimT: 0, jumpT: 0,
-  returning: false, wantDown: 4, status: '', waitT: 0, homeOnly: false,
+  returning: false, wantDown: 4, status: '', waitT: 0, homeOnly: false, tempBlock: new Set(),
 };
 
 function startAutopilot(home) {
@@ -44,22 +44,42 @@ function wrapAng(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI)
 function aiMove(on, run) { keys.KeyW = !!on; keys.ShiftLeft = !!run; }
 function countInv(kind) { return S.inv.filter(i => i.kind === kind).length; }
 
+// Cells a player-sized body can't stand in because of stalagmites, columns,
+// rocks, mushrooms or standing stones (including ones from neighbouring
+// chunks), plus a "near" set of cells that are passable but tight.
 function colliderBlock(ch) {
   if (!ch._cblock) {
-    ch._cblock = new Set();
-    for (const c of ch.colliders) {
-      if (c.r < 0.5) continue;
-      const gx = Math.floor(c.x / CELL), gz = Math.floor(c.z / CELL);
-      ch._cblock.add((gz - ch.cz * CHUNK) * CHUNK + (gx - ch.cx * CHUNK));
+    ch._cblock = new Set(); ch._cnear = new Set();
+    const x0 = ch.cx * CHUNK, z0 = ch.cz * CHUNK;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      for (const c of getChunk(ch.cx + dx, ch.cz + dz, ch.L).colliders) {
+        const hard = c.r + RADIUS + 0.3, soft = c.r + 1.9;
+        for (let gz = Math.floor((c.z - soft) / CELL); gz <= Math.floor((c.z + soft) / CELL); gz++) {
+          for (let gx = Math.floor((c.x - soft) / CELL); gx <= Math.floor((c.x + soft) / CELL); gx++) {
+            if (gx < x0 || gz < z0 || gx >= x0 + CHUNK || gz >= z0 + CHUNK) continue;
+            const d = Math.hypot((gx + 0.5) * CELL - c.x, (gz + 0.5) * CELL - c.z);
+            const idx = (gz - z0) * CHUNK + (gx - x0);
+            if (d < hard) ch._cblock.add(idx); else if (d < soft) ch._cnear.add(idx);
+          }
+        }
+      }
     }
   }
   return ch._cblock;
 }
+function nearCollider(ch, idx) { colliderBlock(ch); return ch._cnear.has(idx); }
+let aiCols = [];
+function gatherColliders() {
+  aiCols = [];
+  for (const e of loaded.values()) for (const c of e.ch.colliders) if (Math.hypot(c.x - S.x, c.z - S.z) < 40) aiCols.push(c);
+}
 // floor height if the cell can be walked on by the AI, otherwise null
 function aiFloor(L, gx, gz) {
   const ch = chunkAtGrid(L, gx, gz), idx = localIdx(ch, gx, gz);
-  if (ch.kind[idx] !== 1 || (ch.flags[idx] & F_LAVA)) return null;
+  if (puzzleKind(ch, idx) !== 1 || (ch.flags[idx] & F_LAVA) || puzzleBlocked(ch, idx)) return null;
   if (colliderBlock(ch).has(idx)) return null;
+  if (AI.tempBlock.size && AI.tempBlock.has(gx + ',' + gz)) return null;
+  if (ch.kind[idx] === 2) return ch.pbridge.get(idx).y;   // a bridged gap
   return ch.floor[idx];
 }
 
@@ -116,8 +136,8 @@ function findPath(L, sx, sz, tx, tz, arriveCells, maxNodes) {
       const f1 = aiFloor(L, nx, nz);
       if (f1 === null || f1 - f0 > 1.15) continue;
       if (dx && dz && (aiFloor(L, x + dx, z) === null || aiFloor(L, x, z + dz) === null)) continue;
-      const ch = chunkAtGrid(L, nx, nz), wet = ch.flags[localIdx(ch, nx, nz)] & F_LIQUID;
-      const cost = gk + (dx && dz ? 1.414 : 1) + (wet ? 1.5 : 0);
+      const ch = chunkAtGrid(L, nx, nz), li = localIdx(ch, nx, nz), wet = ch.flags[li] & F_LIQUID;
+      const cost = gk + (dx && dz ? 1.414 : 1) + (wet ? 1.5 : 0) + (nearCollider(ch, li) ? 1.5 : 0);
       if (cost >= (g.get(nk) ?? 1e9)) continue;
       g.set(nk, cost); came.set(nk, [x, z]);
       heap.push(cost + h(nx, nz), [nx, nz]);
@@ -129,6 +149,10 @@ function findPath(L, sx, sz, tx, tz, arriveCells, maxNodes) {
 function clearWalk(L, ax, az, bx, bz) {
   const dx = bx - ax, dz = bz - az, d = Math.hypot(dx, dz);
   if (d < 0.01) return true;
+  for (const c of aiCols) {
+    const t = clamp(((c.x - ax) * dx + (c.z - az) * dz) / (d * d), 0, 1);
+    if (Math.hypot(ax + dx * t - c.x, az + dz * t - c.z) < c.r + RADIUS + 0.2) return false;
+  }
   const px = -dz / d * 0.45, pz = dx / d * 0.45;
   const n = Math.ceil(d / 0.5);
   let prev = S.y;
@@ -151,6 +175,8 @@ function itemWanted(it) {
   if (it.kind === 'oil') return countInv('oil') < 2;
   if (it.kind === 'food') return countInv('food') < 2;
   if (it.kind === 'axe') return countInv('axe') < 1;
+  if (it.kind === 'key') return countInv('key') < 1;
+  if (it.kind === 'planks') return countInv('planks') < 1;
   return false;
 }
 function nearestItem(pred, range) {
@@ -165,7 +191,7 @@ function nearestItem(pred, range) {
 }
 function itemGoal(it) {
   const word = it.name.split(' ').pop();
-  return { id: 'item:' + it.id + ':' + Math.round(it.x) + ':' + Math.round(it.z), x: it.x, z: it.z, arrive: 1.5, cells: 0.8,
+  return { id: 'item:' + it.id + ':' + Math.round(it.x) + ':' + Math.round(it.z), x: it.x, z: it.z, arrive: 2.0, cells: 1.0,
     label: 'fetching the ' + it.name, act: () => aiSay('take ' + word) };
 }
 function nearbyFeatures(type, radius = 2) {
@@ -190,7 +216,7 @@ function campGoal() {
     const trunk = campFeature('trunk'), barrel = campFeature('barrel'), fire = campFeature('fire');
     if (S.inv.some(i => i.kind === 'treasure'))
       return { id: 'trunk', x: trunk.x, z: trunk.z, arrive: 2.4, cells: 1.5, label: 'taking the loot home to the trunk', act: () => aiSay('deposit') };
-    if (S.fuel < 95)
+    if (S.fuel < (S.closing || AI.homeOnly ? 60 : 95))
       return { id: 'barrel', x: barrel.x, z: barrel.z, arrive: 2.4, cells: 1.5, label: 'refilling the lamp at camp', act: () => aiSay('fill') };
     if (S.health < 92)
       return { id: 'fire', x: fire.x, z: fire.z, arrive: 3.2, cells: 1.8, label: 'resting by the fire', act: () => { AI.waitT = 2; }, stay: true };
@@ -208,6 +234,17 @@ function campGoal() {
   if (top && top.L === S.level - 1) return ropeGoal(top, 'up');
   const ups = nearbyFeatures('ropeUp');
   for (const f of ups) if (!AI.unreachable.has('ropeup:' + Math.round(f.x) + ':' + Math.round(f.z))) return ropeGoal(f, 'up');
+  return null;
+}
+function puzzleGoal() {
+  const need = { gate: 'key', mole: 'food', gap: 'planks' }, cmd = { gate: 'unlock gate', mole: 'feed mole', gap: 'bridge gap' };
+  for (const e of loaded.values()) for (const p of e.ch.puzzles) {
+    if (!need[p.type] || S.solved.has(p.id) || !countInv(need[p.type])) continue;
+    const id = 'puzzle:' + p.id;
+    if (AI.unreachable.has(id) || Math.hypot(p.fx - S.x, p.fz - S.z) > 45) continue;
+    return { id, x: p.fx - p.dir[0] * 0.4, z: p.fz - p.dir[1] * 0.4, arrive: 1.4, cells: 0.5,
+      label: { gate: 'unlocking an iron gate', mole: 'feeding a hungry mole', gap: 'bridging a gap' }[p.type], act: () => aiSay(cmd[p.type]) };
+  }
   return null;
 }
 function visitedOnLevel() {
@@ -246,6 +283,12 @@ function wanderGoal() {
 }
 
 function chooseGoal() {
+  if (S.closing) {
+    AI.returning = true;
+    const g = campGoal();
+    if (g) { g.label = 'racing home before the cave closes: ' + g.label; return g; }
+    return { id: 'wait', x: S.x, z: S.z, arrive: 99, cells: 0, label: 'waiting safely at camp for the last bell', act: () => { AI.waitT = 3; }, stay: true };
+  }
   if (AI.homeOnly) {
     const g = campGoal();
     if (g) { g.label = 'going home: ' + g.label; return g; }
@@ -267,6 +310,8 @@ function chooseGoal() {
   }
   const it = nearestItem(itemWanted, 30);
   if (it) return itemGoal(it);
+  const pg = puzzleGoal();
+  if (pg) return pg;
   if (visitedOnLevel() >= AI.wantDown && S.fuel > 50 && S.inv.length < MAX_INV - 1) {
     for (const f of nearbyFeatures('ropeDown')) if (!AI.unreachable.has('ropedown:' + Math.round(f.x) + ':' + Math.round(f.z))) return ropeGoal(f, 'down');
   }
@@ -275,7 +320,7 @@ function chooseGoal() {
   for (const f of nearbyFeatures('ropeDown')) if (!AI.unreachable.has('ropedown:' + Math.round(f.x) + ':' + Math.round(f.z))) return ropeGoal(f, 'down');
   return wanderGoal();
 }
-function setGoal(g) { AI.goal = g; AI.path = null; AI.pi = 0; AI.stuckN = 0; AI.status = g ? g.label : 'thinking'; }
+function setGoal(g) { AI.goal = g; AI.path = null; AI.pi = 0; AI.stuckN = 0; AI.tempBlock.clear(); if (g) AI.status = g.label; }
 function giveUp() {
   if (AI.goal) AI.unreachable.add(AI.goal.id);
   setGoal(null);
@@ -324,6 +369,7 @@ function aiStep(dt) {
   if (S.health < 45 && countInv('food')) { aiSay('eat'); return; }
   AI.chatT -= dt;
   if (AI.chatT <= 0 && !AI.homeOnly) { AI.chatT = 60 + Math.random() * 60; aiSay(['score', 'inventory', 'look'][Math.floor(Math.random() * 3)]); }
+  gatherColliders();
   if (aiCombat(dt)) return;
   if (AI.waitT > 0) { AI.waitT -= dt; aiMove(false); return; }
 
@@ -380,10 +426,12 @@ function aiStep(dt) {
     AI.lastX = S.x; AI.lastZ = S.z; AI.stuckT = 0;
     if (moved < 0.6 && keys.KeyW) {
       AI.stuckN++;
-      keys.Space = true;
-      S.yaw += (Math.random() - 0.5) * 1.2;
+      const ahead = AI.path && AI.path[AI.pi] ? AI.path[AI.pi] : [S.x - Math.sin(S.yaw) * 1.5, S.z - Math.cos(S.yaw) * 1.5];
+      const bgx = Math.floor(ahead[0] / CELL), bgz = Math.floor(ahead[1] / CELL);
+      if (bgx !== Math.floor(S.x / CELL) || bgz !== Math.floor(S.z / CELL)) AI.tempBlock.add(bgx + ',' + bgz);
+      if (AI.stuckN > 1) keys.Space = true;
       AI.path = null;
-      if (AI.stuckN > 4) giveUp();
+      if (AI.stuckN > 5) giveUp();
     }
   }
 }

@@ -21,6 +21,14 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 - **Gloomkins** throw knives from the dark (the first one always misses). Throw your axe back, then go and pick it up.
 - **The shade** steals treasure and hides it in a nest somewhere nearby.
 - **Reincarnation.** You get three. Your belongings stay where you fell.
+- **Puzzles.** Hidden rooms full of richer treasure sit behind obstacles. The thing you need is somewhere in the same stretch of cave:
+  - an **iron gate** (find the brass key: `UNLOCK GATE`)
+  - a **giant mole** blocking its burrow (`FEED MOLE`; don't get too close without food)
+  - a **gap** too wide to jump (`BRIDGE GAP` with a bundle of planks)
+  - a **dry bulb** under a high shelf (`FILL` a waterskin in an underground lake, `POUR WATER`, then `CLIMB VINE`)
+- **The Tangle.** Some sections are mazes of identical tunnels where your map stops working. Drop things to mark your way.
+- **The cave closes.** Bank 12 treasures and a bell starts tolling. Be back at camp by the last bell to win (+100), or be sealed in forever. Treasure banked while the bells ring counts double.
+- **Hints.** Type `HINT`. It knows what you are stuck on, but costs 5 points (you're asked to confirm first).
 - **Autopilot.** "Watch the AI play" on the title screen (or B) hands the game to an AI at 5× speed. It explores, fights, banks treasure and uses magic words, typing its commands as it goes. "Autopilot: go home" on the pause screen (or G) takes you back to camp. Any key takes back control.
 
 ## Controls

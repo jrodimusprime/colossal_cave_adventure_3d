@@ -240,7 +240,7 @@ function buildChunkMesh(cx, cz, L) {
     const fl = ch.flags[idx], room = ch.room[idx] >= 0 ? ch.rooms[ch.room[idx]] : null;
     const lay = surfLayers(room, reg);
     const c0 = C[j * S1 + i], c1 = C[j * S1 + i + 1], c2 = C[(j + 1) * S1 + i + 1], c3 = C[(j + 1) * S1 + i];
-    const fy = q => (k === 2 ? q.fp : q.fo);
+    const fy = q => (k === 2 ? q.fp : k === 3 ? q.fl : q.fo);
     const fLayer = k === 2 ? T.BLACK : lay.floor;
     const diag = hash4(gx0 + i, gz0 + j, L, 3) & 1;
     const f0 = P(c0, fy(c0)), f1 = P(c1, fy(c1)), f2 = P(c2, fy(c2)), f3 = P(c3, fy(c3));
@@ -255,6 +255,7 @@ function buildChunkMesh(cx, cz, L) {
       const ca = C[(j + d[3]) * S1 + i + d[2]], cb = C[(j + d[5]) * S1 + i + d[4]];
       if (nk === 0) wallStrip(mb, ca, cb, fy(ca), fy(cb), ca.c, cb.c, lay.wall, -d[0], -d[1], L);
       else if (k === 2 && nk === 1) mb.quad(P(ca, ca.fp), P(cb, cb.fp), P(cb, cb.fo), P(ca, ca.fo), lay.wall, -d[0], 0, -d[1]);
+      else if (k === 1 && nk === 3) mb.quad(P(ca, ca.fo), P(cb, cb.fo), P(cb, cb.fl), P(ca, ca.fl), lay.wall, -d[0], 0, -d[1]);
     }
     if (fl & F_LIQUID) {
       const y = ch.liquid[idx];
@@ -366,6 +367,56 @@ function buildModel(name, mat) {
       addBox(mb, -0.055, 0.28, 0, 0.008, 0.03, 0.008, T.METAL); addBox(mb, 0.055, 0.28, 0, 0.008, 0.03, 0.008, T.METAL);
       break;
     case 'puff': addRock(mb, 0, 0, 0, 0.12, 0.12, 0.12, 2, mat, 0.3); break;
+    case 'key':
+      addLathe(mb, -0.12, 0.03, 0, [[0.05, 0], [0.08, 0.015], [0.08, 0.03], [0.05, 0.045]], 8, mat);
+      addBox(mb, 0.06, 0.03, 0, 0.12, 0.015, 0.015, mat);
+      addBox(mb, 0.15, 0.03, 0.03, 0.015, 0.015, 0.03, mat); addBox(mb, 0.11, 0.03, 0.025, 0.012, 0.015, 0.025, mat);
+      break;
+    case 'planks':
+      for (let k = 0; k < 3; k++) addBox(mb, 0, 0.04 + k * 0.08, (k - 1) * 0.02, 0.6, 0.035, 0.12, mat, (k - 1) * 0.08);
+      addBox(mb, 0.3, 0.12, 0, 0.03, 0.13, 0.14, T.ROPE); addBox(mb, -0.3, 0.12, 0, 0.03, 0.13, 0.14, T.ROPE);
+      break;
+    case 'skin':
+      addRock(mb, 0, 0.16, 0, 0.17, 0.16, 0.13, 21, mat, 0.12);
+      addLathe(mb, 0, 0.28, 0, [[0, 0], [0.05, 0], [0.04, 0.1], [0.055, 0.12], [0, 0.12]], 6, T.ROPE);
+      break;
+    case 'gate': {
+      for (let k = 0; k < 8; k++) addBox(mb, -1.12 + k * 0.32, 1.6, 0, 0.035, 1.75, 0.035, mat);
+      for (const y of [0.25, 1.6, 2.95]) addBox(mb, 0, y, 0, 1.25, 0.05, 0.05, mat);
+      addBox(mb, 0.55, 1.45, 0.07, 0.09, 0.12, 0.04, T.GOLD);
+      break;
+    }
+    case 'mole':
+      addRock(mb, 0, 0.9, -0.1, 1.0, 0.85, 1.15, 31, mat, 0.15);
+      addRock(mb, 0, 0.95, 0.95, 0.55, 0.5, 0.5, 32, mat, 0.12);
+      addLathe(mb, 0, 0.88, 1.3, [[0, 0], [0.22, 0], [0.12, 0.3], [0.06, 0.42], [0, 0.44]], 6, T.PALE, 0, ONE3, [0, 0, 1]);
+      for (const sx of [-1, 1]) {
+        for (let k = 0; k < 3; k++) addSpike(mb, sx * 0.55, 0.35, 0.75 + k * 0.08, [sx * 0.4, -0.3, 1], 0.4, 0.05, 4, T.BONE);
+        addBox(mb, sx * 0.2, 1.12, 1.33, 0.03, 0.03, 0.02, T.BLACK);
+      }
+      break;
+    case 'bridge':
+      for (let k = 0; k < 14; k++) addBox(mb, 0, -0.06, -2.4 + k * 0.37, 0.6, 0.06, 0.15, mat, (k % 3 - 1) * 0.04);
+      for (const sx of [-0.62, 0.62]) {
+        addBox(mb, sx, 0.85, 0, 0.03, 0.03, 2.5, T.ROPE);
+        for (const z of [-2.45, 0, 2.45]) addBox(mb, sx, 0.4, z, 0.05, 0.5, 0.05, mat);
+      }
+      break;
+    case 'bulb':
+      addLathe(mb, 0, 0, 0, [[0, 0], [0.32, 0.08], [0.38, 0.3], [0.18, 0.55], [0.04, 0.7], [0, 0.72]], 7, mat);
+      for (let k = 0; k < 3; k++) { const a = k * 2.1; addSpike(mb, Math.cos(a) * 0.25, 0.2, Math.sin(a) * 0.25, [Math.cos(a), 0.4, Math.sin(a)], 0.35, 0.05, 3, T.SKIN); }
+      break;
+    case 'vine': {
+      const H = 4.4;
+      addLathe(mb, 0, 0, 0, [[0, 0], [0.4, 0.1], [0.42, 0.35], [0.2, 0.6], [0, 0.65]], 7, mat);
+      for (let k = 0; k < 4; k++) addLathe(mb, Math.sin(k * 1.7) * 0.12, 0.4 + k * (H / 4), Math.cos(k * 1.7) * 0.12, [[0, 0], [0.09, 0], [0.08, H / 4 + 0.05], [0, H / 4 + 0.05]], 5, mat);
+      for (let k = 0; k < 14; k++) {
+        const a = k * 2.4, y = 0.6 + k * 0.3;
+        addSpike(mb, Math.cos(a) * 0.1, y, Math.sin(a) * 0.1, [Math.cos(a), 0.35, Math.sin(a)], 0.55, 0.12, 3, T.JADE);
+      }
+      addLathe(mb, 0, H + 0.4, 0, [[0, 0], [0.35, 0.1], [0.2, 0.3], [0, 0.32]], 6, T.MUSHCAP);
+      break;
+    }
     default: addBox(mb, 0, 0.1, 0, 0.1, 0.1, 0.1, mat);
   }
   return mb.finish();
