@@ -172,6 +172,10 @@ function addProp(mb, p) {
       addLathe(mb, p.x, p.y + 2.4, p.z, [[0, 0], [0.12, 0], [0.12, 0.3], [0, 0.3]], 6, T.ROPE);
       break;
     }
+    case 'chute':
+      // a polished stone lip around a steep hole
+      for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; addRock(mb, p.x + Math.cos(a) * 1.35, p.y + 0.05, p.z + Math.sin(a) * 1.35, 0.35, 0.18, 0.35, k * 5 + 3, T.ROCK2, 0.2); }
+      break;
     case 'rune':
       addLathe(mb, p.x, p.y - 0.4, p.z, [[0, 0], [0.62, 0], [0.5, 2.4], [0.28, 2.75], [0, 2.8]], 4, T.STONE, p.rot);
       break;
@@ -476,6 +480,15 @@ function buildModel(name, mat) {
         for (const z of [-2.45, 0, 2.45]) addBox(mb, sx, 0.4, z, 0.05, 0.5, 0.05, mat);
       }
       break;
+    case 'door': {
+      const rust = [0.95, 0.55, 0.35];
+      addBox(mb, 0, 1.5, 0, 1.15, 1.5, 0.09, T.WOOD);
+      for (const y of [0.45, 1.5, 2.55]) addBox(mb, 0, y, 0.07, 1.17, 0.08, 0.03, T.METAL, 0, rust);
+      for (const y of [0.6, 2.4]) addBox(mb, -1.08, y, 0.1, 0.1, 0.16, 0.05, T.METAL, 0, rust);
+      addBox(mb, 0.85, 1.4, 0.12, 0.06, 0.06, 0.06, T.METAL, 0, rust);
+      break;
+    }
+    case 'shard': addRock(mb, 0, 0.03, 0, 0.06, 0.02, 0.05, 9, mat, 0.6); break;
     case 'bulb':
       addLathe(mb, 0, 0, 0, [[0, 0], [0.32, 0.08], [0.38, 0.3], [0.18, 0.55], [0.04, 0.7], [0, 0.72]], 7, mat);
       for (let k = 0; k < 3; k++) { const a = k * 2.1; addSpike(mb, Math.cos(a) * 0.25, 0.2, Math.sin(a) * 0.25, [Math.cos(a), 0.4, Math.sin(a)], 0.35, 0.05, 3, T.SKIN); }

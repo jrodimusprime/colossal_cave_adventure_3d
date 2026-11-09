@@ -93,7 +93,7 @@ function planBase(cx, cz, L) {
       const a = rng.range(0, Math.PI * 2), d = Math.min(2, room.r * 0.45);
       sx = Math.floor(room.x + Math.cos(a) * d); sz = Math.floor(room.z + Math.sin(a) * d);
     }
-    shafts.push({ x: sx, z: sz, ri });
+    shafts.push({ x: sx, z: sz, ri, chute: room.type !== 'camp' && rng.chance(0.3) });
   };
   const eligible = [];
   rooms.forEach((r, i) => { if (!['lake', 'lava', 'chasm', 'lair'].includes(r.type)) eligible.push(i); });
@@ -144,7 +144,7 @@ function genChunk(cx, cz, L) {
   if (L > 0) {
     for (const s of planBase(cx, cz, L - 1).shafts) {
       const lr = mkRoom('landing', s.x + 0.5, s.z + 0.5, 2.8, 4.5, rng);
-      rooms.push(Object.assign(lr, { cells: [], exits: 0, landing: { x: s.x, z: s.z } }));
+      rooms.push(Object.assign(lr, { cells: [], exits: 0, landing: { x: s.x, z: s.z, chute: s.chute } }));
     }
   }
   ch.rooms = rooms;
@@ -191,8 +191,10 @@ function genChunk(cx, cz, L) {
     ch.flags[idx] = (ch.flags[idx] & ~(F_LIQUID | F_LAVA)) | F_SHAFTUP | F_TALL | F_OCC;
     ch.ceil[idx] = ch.floor[idx] + 24;
     const wx = (cx * CHUNK + s.x + 0.5) * CELL, wz = (cz * CHUNK + s.z + 0.5) * CELL;
-    ch.features.push({ type: 'ropeUp', x: wx, z: wz, y: ch.floor[idx], gx: cx * CHUNK + s.x, gz: cz * CHUNK + s.z });
-    ch.props.push({ t: 'rope', x: wx, z: wz, y0: ch.floor[idx] - 0.2, y1: ch.floor[idx] + 24 });
+    if (!s.chute) {
+      ch.features.push({ type: 'ropeUp', x: wx, z: wz, y: ch.floor[idx], gx: cx * CHUNK + s.x, gz: cz * CHUNK + s.z });
+      ch.props.push({ t: 'rope', x: wx, z: wz, y0: ch.floor[idx] - 0.2, y1: ch.floor[idx] + 24 });
+    } else ch.props.push({ t: 'rock', x: wx + 0.6, z: wz - 0.4, y: ch.floor[idx], s: 0.45, seed: s.x * 7 + s.z, layer: T.ROCK2 });
   });
   // --- shafts down
   for (const s of plan.shafts) {
@@ -202,11 +204,17 @@ function genChunk(cx, cz, L) {
     ch.kind[idx] = 2;
     ch.floor[idx] = top - 45;
     ch.flags[idx] = (ch.flags[idx] & ~(F_LIQUID | F_LAVA)) | F_SHAFTDOWN | F_OCC;
-    rooms[s.ri].shaftDown = true;
     const wx = (cx * CHUNK + s.x + 0.5) * CELL, wz = (cz * CHUNK + s.z + 0.5) * CELL;
-    ch.features.push({ type: 'ropeDown', x: wx, z: wz, y: top, gx: cx * CHUNK + s.x, gz: cz * CHUNK + s.z, ri: s.ri });
-    ch.props.push({ t: 'frame', x: wx, z: wz, y: top });
-    ch.props.push({ t: 'rope', x: wx, z: wz, y0: top - 40, y1: top + 2.5 });
+    if (s.chute) {
+      ch.features.push({ type: 'chuteDown', x: wx, z: wz, y: top, gx: cx * CHUNK + s.x, gz: cz * CHUNK + s.z, ri: s.ri });
+      ch.props.push({ t: 'chute', x: wx, z: wz, y: top });
+      rooms[s.ri].chuteDown = true;
+    } else {
+      ch.features.push({ type: 'ropeDown', x: wx, z: wz, y: top, gx: cx * CHUNK + s.x, gz: cz * CHUNK + s.z, ri: s.ri });
+      ch.props.push({ t: 'frame', x: wx, z: wz, y: top });
+      ch.props.push({ t: 'rope', x: wx, z: wz, y0: top - 40, y1: top + 2.5 });
+      rooms[s.ri].ropeDown = true;
+    }
   }
 
   populate(ch, rng);
@@ -341,12 +349,12 @@ const TREASURES = [
   { n: 'golden chalice', mesh: 'chalice', mat: 'GOLD', v: 16, d: 1 },
   { n: 'sapphire', mesh: 'gem', mat: 'SAPPHIRE', v: 15, d: 2 },
   { n: 'jade idol', mesh: 'idol', mat: 'JADE', v: 20, d: 2 },
-  { n: 'porcelain urn', mesh: 'urn', mat: 'BONE', v: 18, d: 2 },
+  { n: 'porcelain urn', mesh: 'urn', mat: 'BONE', v: 18, d: 2, fragile: true },
   { n: 'pearl as big as a plum', mesh: 'orb', mat: 'PALE', v: 18, d: 2 },
   { n: 'silver idol', mesh: 'idol', mat: 'SILVER', v: 24, d: 3 },
   { n: 'obsidian mask', mesh: 'mask', mat: 'OBSIDIAN', v: 22, d: 3 },
   { n: 'jewelled crown', mesh: 'crown', mat: 'GOLD', v: 30, d: 4 },
-  { n: 'crystal egg', mesh: 'egg', mat: 'CRYSTAL', v: 28, d: 4 },
+  { n: 'crystal egg', mesh: 'egg', mat: 'CRYSTAL', v: 28, d: 4, fragile: true },
   { n: 'amethyst skull', mesh: 'skull', mat: 'AMETHYST', v: 35, d: 6 },
   { n: 'ember opal', mesh: 'gem', mat: 'LAVA', v: 40, d: 8 },
 ];
@@ -357,7 +365,7 @@ function mkTreasure(rng, L) {
   let r = rng.next() * tot, pick = cands[0];
   for (const t of cands) { r -= 1 + t.d * 0.6; if (r <= 0) { pick = t; break; } }
   return { kind: 'treasure', name: rng.pick(TREASURE_ADJ) + ' ' + pick.n, mesh: pick.mesh, mat: pick.mat,
-    value: Math.round(pick.v * (1 + L * 0.3) * rng.range(0.85, 1.25)) };
+    value: Math.round(pick.v * (1 + L * 0.3) * rng.range(0.85, 1.25)), fragile: !!pick.fragile };
 }
 const FOODS = ['bundle of dried mushrooms', 'packet of stale biscuits', 'wedge of hard cheese', 'strip of smoked eel', 'twist of salted nuts'];
 function mkOil() { return { kind: 'oil', name: 'flask of lamp oil', mesh: 'flask', mat: 'METAL' }; }
@@ -562,7 +570,7 @@ function campSetup(ch, room, light) {
   ch.features.push({ type: 'barrel', x: barrel.x, z: barrel.z, y: barrel.y });
   ch.colliders.push({ x: barrel.x, z: barrel.z, r: 0.6 });
   light((ox + CAMP.x) * CELL, room.baseY + 14, (oz + CAMP.z) * CELL, [0.95, 0.95, 0.85], 58, 2.6);
-  const items = [[mkAxe(), 14, 17], [mkOil(), 15, 18], [{ kind: 'food', name: 'packet of stale biscuits', mesh: 'food', mat: 'CLOTH' }, 18, 17]];
+  const items = [[mkOil(), 15, 18], [{ kind: 'food', name: 'packet of stale biscuits', mesh: 'food', mat: 'CLOTH' }, 18, 17]];
   let n = 900;
   for (const [it, i, j] of items) {
     const p = at(i, j);
@@ -681,6 +689,8 @@ const DESC = {
     'This is the mole\'s larder: a round, warm chamber lined with bedding, beetle shells and, oddly, treasure.'],
   far: ['You are on the far side of the gap, in a little grotto that nobody has set foot in for a very long time.',
     'You have crossed to a lonely chamber beyond the gap. The dust lies thick and undisturbed.'],
+  cellar: ['You are in a low storeroom behind the rusted door. Mouldering shelves line the walls, and something glints on the floor.',
+    'This is an old workshop, abandoned long ago. Rusted tools hang from pegs, untouched since the door last closed.'],
   shelf: ['You are on a high, narrow shelf in the rock. The cavern floor is a long way down.',
     'This is a hidden shelf high in the cavern wall, reachable only by something that grows.'],
   camp: ['You are in a great sinkhole open to the sky. Daylight spills down the mossy walls onto your camp: a battered trunk for treasure, a barrel of lamp oil and a smouldering fire. Dark passages lead off into the hillside.'],
@@ -691,9 +701,11 @@ function describeRoom(ch, ri) {
   const list = DESC[room.type] || DESC.grotto;
   parts.push(list[room.descIdx % list.length]);
   if (room.type !== 'camp' && room.descIdx % 3 === 0) parts.push(reg.flavor[room.descIdx % reg.flavor.length]);
-  if (room.shaftDown && room.type !== 'camp') parts.push('A knotted rope, tied off on a crude wooden frame, hangs down into a black shaft in the floor.');
+  if (room.ropeDown && room.type !== 'camp') parts.push('A knotted rope, tied off on a crude wooden frame, hangs down into a black shaft in the floor.');
+  if (room.chuteDown) parts.push('A smooth, steep chute plunges down through the floor, polished by who knows what. You could slide down it, but you would never climb back up.');
   if (room.type === 'camp') parts.push('Beside the fire, a knotted rope hangs down a black shaft into the deeper cave.');
-  if (room.landing) parts.push('A rope dangles from a dark shaft in the ceiling: the way back up.');
+  if (room.landing) parts.push(room.landing.chute ? 'High above, a chute opens in the ceiling, far too steep and slick to climb. There is no going back that way.'
+    : 'A rope dangles from a dark shaft in the ceiling: the way back up.');
   const rune = ch.features.find(f => f.type === 'rune' && f.ri === ri);
   if (rune) parts.push('A weathered standing stone bears a single carved word: "' + rune.word + '".');
   if (room.type !== 'camp') {
@@ -716,6 +728,7 @@ const POCKET_NAMES = {
   den: ['the Mole\'s Larder', 'the Burrow Hoard', 'the Warm Den'],
   far: ['the Far Grotto', 'the Stranded Chamber', 'the Other Side'],
   shelf: ['the High Shelf', 'the Overhang', 'the Hidden Ledge'],
+  cellar: ['the Rusted Cellar', 'the Old Storeroom', 'the Forgotten Workshop'],
 };
 function mkKey() { return { kind: 'key', name: 'brass key', mesh: 'key', mat: 'GOLD' }; }
 function mkPlanks() { return { kind: 'planks', name: 'bundle of planks', mesh: 'planks', mat: 'WOOD' }; }
@@ -733,7 +746,7 @@ function puzzleBlocked(ch, idx) {
 function maybeAddPuzzle(ch, rng) {
   const L = ch.L;
   if (!rng.chance(L === 0 ? 0.25 : 0.42)) return;
-  let type = rng.pick(L === 0 ? ['gate', 'mole', 'gap'] : ['gate', 'mole', 'gap', 'vine', 'vine']);
+  let type = rng.pick(L === 0 ? ['gate', 'mole', 'gap', 'door'] : ['gate', 'mole', 'gap', 'door', 'vine', 'vine']);
   const hasLake = ch.rooms.some(r => r.type === 'lake');
   if (type === 'vine' && !hasLake) type = rng.pick(['gate', 'gap', 'mole']);
   else if (hasLake && L >= 1 && rng.chance(0.5)) type = 'vine';
@@ -770,7 +783,7 @@ function tryPuzzle(ch, rng, type) {
   }
   // --- carve it
   const base = ch.floor[B];
-  const pType = { gate: 'vault', mole: 'den', gap: 'far', vine: 'shelf' }[type];
+  const pType = { gate: 'vault', mole: 'den', gap: 'far', vine: 'shelf', door: 'cellar' }[type];
   const pri = rooms.length;
   const proom = { type: pType, x: pcx, z: pcz, r: PR, h: 4.5, pocket: true, exits: 1, cells: [], seed: rng.int(0, 1e9),
     descIdx: rng.int(0, 999), name: rng.pick(POCKET_NAMES[pType]), baseY: base };
@@ -791,7 +804,7 @@ function tryPuzzle(ch, rng, type) {
   const id = L + ':' + ch.cx + ':' + ch.cz + ':pz';
   const [fx, fz] = W(ex, ez);
   const pz0 = { id, type, dir, y: base, fx, fz, ri: pri };
-  if (type === 'gate' || type === 'mole') {
+  if (type === 'gate' || type === 'mole' || type === 'door') {
     const oi = ex + dir[0], oj = ez + dir[1];
     ch.pblock = new Map([[oj * CHUNK + oi, id]]);
     [pz0.ox, pz0.oz] = W(oi, oj);
@@ -828,7 +841,7 @@ function tryPuzzle(ch, rng, type) {
     ch.items.push(t);
   }
   // the thing that solves it, somewhere else in this chunk
-  const sol = type === 'gate' ? mkKey() : type === 'mole' ? mkFood(rng) : type === 'gap' ? mkPlanks() : mkSkin();
+  const sol = type === 'gate' ? mkKey() : type === 'mole' ? mkFood(rng) : type === 'gap' ? mkPlanks() : type === 'door' ? mkOil() : mkSkin();
   const cands = rooms.filter(r => !r.pocket && r.cells.length);
   for (let tries = 0; tries < 30 && cands.length; tries++) {
     const r = rng.pick(cands), idx = rng.pick(r.cells);

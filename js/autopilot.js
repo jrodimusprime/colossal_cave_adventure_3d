@@ -278,6 +278,8 @@ function campFeature(type) { return getChunk(0, 0, 0).features.find(f => f.type 
 function campGoal() {
   if (S.level === 0) {
     const trunk = campFeature('trunk'), barrel = campFeature('barrel'), fire = campFeature('fire');
+    if (S.recallWord && atCamp() && S.dropped.some(d => d.stolen))
+      return { id: 'recall', x: S.x, z: S.z, arrive: 99, cells: 0, label: 'saying ' + S.recallWord + ' to summon back stolen treasure', act: () => aiSay('say ' + S.recallWord) };
     if (S.inv.some(i => i.kind === 'treasure'))
       return { id: 'trunk', x: trunk.x, z: trunk.z, arrive: 2.4, cells: 1.5, label: 'taking the loot home to the trunk', act: () => aiSay('deposit') };
     if (S.fuel < (S.closing || AI.homeOnly ? 60 : 95))
@@ -358,8 +360,9 @@ const PUZZLE_SOLVE = {
   mole: { cmd: 'feed mole', label: 'feed the mole', pre: s => s.food, eff: s => { s.food = 0; s.inv--; s.solved = 1; } },
   gap: { cmd: 'bridge gap', label: 'bridge the gap', pre: s => s.planks, eff: s => { s.planks = 0; s.inv--; s.solved = 1; } },
   vine: { cmd: 'pour water', label: 'water the bulb', pre: s => s.full, eff: s => { s.full = 0; s.solved = 1; } },
+  door: { cmd: 'oil door', label: 'oil the rusted door', pre: s => s.oil, eff: s => { s.oil = 0; s.inv--; s.solved = 1; } },
 };
-const PICKUP_KINDS = ['key', 'planks', 'food', 'skin'];
+const PICKUP_KINDS = ['key', 'planks', 'food', 'skin', 'oil'];
 function pocketCenter(p) {
   const [, cx, cz] = p.id.split(':').map(Number);
   const room = getChunk(cx, cz, S.level).rooms[p.ri];
@@ -392,10 +395,10 @@ function goapActions(p) {
 }
 function goapPlan(p) {
   const acts = goapActions(p);
-  const s0 = { at: -1, key: countInv('key') ? 1 : 0, planks: countInv('planks') ? 1 : 0, food: countInv('food') ? 1 : 0,
+  const s0 = { at: -1, oil: countInv('oil') ? 1 : 0, key: countInv('key') ? 1 : 0, planks: countInv('planks') ? 1 : 0, food: countInv('food') ? 1 : 0,
     skin: countInv('skin') ? 1 : 0, full: S.inv.some(i => i.kind === 'skin' && i.full) ? 1 : 0, inv: S.inv.length,
     solved: S.solved.has(p.id) ? 1 : 0, looted: 0 };
-  const skey = s => [s.at, s.key, s.planks, s.food, s.skin, s.full, s.inv, s.solved, s.looted].join(',');
+  const skey = s => [s.at, s.oil, s.key, s.planks, s.food, s.skin, s.full, s.inv, s.solved, s.looted].join(',');
   const pos = s => s.at < 0 ? [S.x, S.z] : [acts[s.at].x, acts[s.at].z];
   const heap = new MinHeap(), best = new Map();
   heap.push(0, { s: s0, cost: 0, prev: null, act: -1 });
@@ -585,7 +588,8 @@ function aiStep(dt) {
   AI.scanT -= dt;
   if (AI.scanT <= 0) { AI.scanT = 0.3; aiScan(); }
   // housekeeping, like a careful player
-  if (S.fuel < 30 && countInv('oil')) { aiSay('fill lamp'); return; }
+  const savingOil = AI.plan && AI.plan.target.type === 'door' && countInv('oil') <= 1;
+  if (countInv('oil') && (S.fuel < 30 && !savingOil || S.fuel < 12)) { aiSay('fill lamp'); return; }
   if (!S.lampOn && S.fuel > 0) { aiSay('lamp on'); return; }
   if (S.health < 45 && countInv('food') > (AI.plan && AI.plan.target.type === 'mole' ? 1 : 0)) { aiSay('eat'); return; }
   // drop puzzle tools nobody needs any more when the pack is nearly full

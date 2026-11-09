@@ -18,15 +18,20 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 - **The lamp.** It burns oil. Refill it at the camp barrel or with flasks found below. In pitch darkness you may fall into a pit.
 - **Typed commands.** Press Enter for a parser: `TAKE ALL`, `DROP IDOL`, `INVENTORY`, `LOOK`, `SCORE`, `FILL`, `EAT`, `SAY <word>`, `BRIEF`/`VERBOSE`, `SAVE`/`RESTORE`, `HELP`.
 - **Magic words.** Carved standing stones each bear a word. Say it beside the stone to return to camp, or at camp to return to the stone.
-- **Gloomkins** throw knives from the dark (the first one always misses). Every attack is telegraphed: an arm goes back before a knife flies, a crouch before a lunge. Click to swing your axe, right-click or Q to throw it (then go and pick it up). Hits knock them back; deeper gloomkins take two or three.
+- **Gloomkins** throw knives from the dark (the first one always misses; the very first gloomkin throws its axe instead, which is how you get one). Every attack is telegraphed: an arm goes back before a knife flies, a crouch before a lunge. Click to swing your axe, right-click or Q to throw it (then go and pick it up). Hits knock them back; deeper gloomkins take two or three.
 - **The Cinder Wyrm** sleeps on a hoard of double-value treasure in rare lairs from level 4 down. Your lamplight or running wakes it; sneaking past with the lamp off is possible, if dangerous. It breathes fire (watch for the glowing throat), bites, and sweeps its tail at anyone behind it. It won't leave its lair. Eight axe hits kill it for good (+50).
 - **The shade** steals treasure and hides it in a nest somewhere nearby.
 - **Reincarnation.** You get three. Your belongings stay where you fell.
 - **Puzzles.** Hidden rooms full of richer treasure sit behind obstacles. The thing you need is somewhere in the same stretch of cave:
   - an **iron gate** (find the brass key: `UNLOCK GATE`)
+  - a **rusted door** (`OIL DOOR`: it costs you a flask of lamp oil, so light or access?)
   - a **giant mole** blocking its burrow (`FEED MOLE`; don't get too close without food)
   - a **gap** too wide to jump (`BRIDGE GAP` with a bundle of planks)
   - a **dry bulb** under a high shelf (`FILL` a waterskin in an underground lake, `POUR WATER`, then `CLIMB VINE`)
+- **Fragile treasure.** Porcelain urns and crystal eggs shatter if you drop them on bare rock, take a hard fall, or die carrying them. Moss, mushroom beds, water and the trunk are safe.
+- **Your first weapon comes from your first enemy.** You don't start with an axe: the first gloomkin you meet hurls its axe at you, misses, and runs off.
+- **One-way chutes.** Some shafts have no rope: you can slide down (`DOWN` or E), but there's no climbing back. Find another way home.
+- **The recall word.** The first time the shade robs you it drops a scrap of cloth with a word on it. Say it and every stolen treasure comes back to camp.
 - **The Tangle.** Some sections are mazes of identical tunnels where your map stops working. Drop things to mark your way.
 - **The cave closes.** Bank 12 treasures and a bell starts tolling. Be back at camp by the last bell to win (+100), or be sealed in forever. Treasure banked while the bells ring counts double.
 - **Hints.** Type `HINT`. It knows what you are stuck on, but costs 5 points (you're asked to confirm first).

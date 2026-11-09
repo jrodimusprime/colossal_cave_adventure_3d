@@ -122,6 +122,18 @@ function dustBurst(x, y, z, n, mat = 'SMOKE') {
 // ---- gloomkin behaviour --------------------------------------------------------
 function throwKnife(c) {
   const ox = c.x + Math.sin(c.face) * 0.3, oy = c.y + 1.1 * c.scale, oz = c.z + Math.cos(c.face) * 0.3;
+  if (!S.axeGift) {
+    // like the original's first dwarf: it hurls its axe, misses, and you get a weapon out of it
+    S.axeGift = true;
+    const side = Math.random() < 0.5 ? 1 : -1, rx = Math.cos(S.yaw) * side * 1.6, rz = -Math.sin(S.yaw) * side * 1.6;
+    const tx = S.x + rx, tz = S.z + rz, d = Math.hypot(tx - ox, tz - oz) || 1, t = d / 13;
+    projectiles.push({ type: 'gaxe', item: mkAxe(), x: ox, y: oy, z: oz, vx: (tx - ox) / t, vy: (S.y + 0.6 - oy) / t + 4.5 * t, vz: (tz - oz) / t, life: 3, spin: 0, lx: ox, lz: oz });
+    Sfx.whoosh();
+    log('The gloomkin hurls a small axe at you! It misses by a whisker and clatters to the floor beside you.', 'warn');
+    log('Its owner looks at its empty hands, squeaks, and scuttles off into the dark. That was careless of it.', 'good');
+    c.state = 'flee'; c.life = 4;
+    return;
+  }
   const tx = S.x + S.vx * 0.5, ty = S.y + 1.1, tz = S.z + S.vz * 0.5;
   let dx = tx - ox, dy = ty - oy, dz = tz - oz;
   const d = Math.hypot(dx, dy, dz) || 1;
@@ -157,7 +169,7 @@ function updateGloom(c, dt, d, dx, dz, see) {
   let mx = 0, mz = 0;
   switch (c.state) {
     case 'hurt': if (c.st <= 0) c.state = 'move'; break;
-    case 'windup': if (c.st <= 0) { throwKnife(c); c.state = 'throw'; c.st = 0.25; } break;
+    case 'windup': if (c.st <= 0) { throwKnife(c); if (c.state !== 'flee') { c.state = 'throw'; c.st = 0.25; } } break;
     case 'throw': if (c.st <= 0) c.state = 'move'; break;
     case 'lunge':
       if (c.st <= 0) {
@@ -170,6 +182,7 @@ function updateGloom(c, dt, d, dx, dz, see) {
       }
       break;
     case 'swipe': if (c.st <= 0) c.state = 'move'; break;
+    case 'flee': mx = -dx / d; mz = -dz / d; break;
     default: {
       const ideal = lampLevel() > 0 ? 10 : 3;
       if (!see || d > ideal + 3) { mx = dx / d; mz = dz / d; }
@@ -184,9 +197,9 @@ function updateGloom(c, dt, d, dx, dz, see) {
     }
   }
   if (mx || mz) {
-    if (moveCreature(c, mx, mz, 3.1, dt, 0.4) < 3.1 * dt * 0.3) c.strafe *= -1;
+    if (moveCreature(c, mx, mz, c.state === 'flee' ? 5 : 3.1, dt, 0.4) < 3.1 * dt * 0.3) c.strafe *= -1;
   } else c.speed *= Math.max(0, 1 - dt * 10);
-  const target = (mx || mz) && !see ? Math.atan2(mx, mz) : Math.atan2(dx, dz);
+  const target = (mx || mz) && (!see || c.state === 'flee') ? Math.atan2(mx, mz) : Math.atan2(dx, dz);
   c.face += clamp(angWrap(target - c.face), -7 * dt, 7 * dt);
 }
 
@@ -445,16 +458,17 @@ function updateProjectiles(dt) {
   const L = S.level;
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
-    p.vy -= (p.type === 'axe' ? 9 : 3) * dt; p.spin += dt * 14; p.life -= dt;
+    p.vy -= (p.type === 'knife' ? 3 : 9) * dt; p.spin += dt * 14; p.life -= dt;
     const nx = p.x + p.vx * dt, ny = p.y + p.vy * dt, nz = p.z + p.vz * dt;
     const g = groundInfo(L, nx, nz);
     if (g.kind === 0 || ny < g.floor || ny > g.ceil || p.life < 0) {
-      if (p.type === 'axe') { dropAxeAt(p, p.x, p.z); Sfx.clink(); }
+      if (p.type === 'axe' || p.type === 'gaxe') { dropAxeAt(p, p.x, p.z); Sfx.clink(); }
       else if (Math.hypot(p.x - S.x, p.z - S.z) < 15) Sfx.clink();
       projectiles.splice(i, 1); continue;
     }
     if (g.kind === 1 || g.kind === 3) { p.lx = nx; p.lz = nz; }
     p.x = nx; p.y = ny; p.z = nz;
+    if (p.type === 'gaxe') continue;          // the gift axe never hits anyone
     if (p.type === 'knife') {
       if (Math.hypot(p.x - S.x, p.y - (S.y + 1.0), p.z - S.z) < 0.75) {
         projectiles.splice(i, 1);

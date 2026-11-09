@@ -237,7 +237,7 @@ function updatePlayer(dt) {
   if (S.onGround && S.vy <= 0 && S.y - g.floor < 0.8) { S.y = g.floor; S.vy = 0; }
   else { S.vy -= 24 * dt; S.y += S.vy * dt; }
   if (S.y <= g.floor) {
-    if (S.vy < -15) { Sfx.thud(); const dmg = Math.round((-S.vy - 15) * 6); if (dmg > 2) hurt(dmg, 'fall'); }
+    if (S.vy < -15) { Sfx.thud(); const dmg = Math.round((-S.vy - 15) * 6); if (dmg > 2) hurt(dmg, 'fall'); if (dmg > 8) breakFragile('You land hard, and hear a horrible tinkling from your pack.'); }
     S.y = g.floor; S.vy = 0;
   }
   S.onGround = S.y - g.floor < 0.02;
@@ -405,6 +405,8 @@ function promptText(t) {
     case 'rune': return '[E] read the standing stone';
     case 'ropeDown': return '[E] climb down the rope';
     case 'ropeUp': return '[E] climb up the rope';
+    case 'chuteDown': return '[E] slide down the chute (one way!)';
+    case 'door': return S.inv.some(i => i.kind === 'oil') ? '[E] oil the rusted hinges' : 'A door, rusted solid';
     case 'gate': return S.inv.some(i => i.kind === 'key') ? '[E] unlock the gate with your brass key' : 'An iron gate, locked tight';
     case 'mole': return S.inv.some(i => i.kind === 'food') ? '[E] offer the mole some food' : 'A giant mole blocks the way. It looks hungry.';
     case 'gap': return S.inv.some(i => i.kind === 'planks') ? '[E] lay your planks across the gap' : 'A gap too wide to jump';
@@ -425,6 +427,8 @@ function interact() {
     case 'rune': learnRune(t.f, true); break;
     case 'ropeDown': climbDown(t.f, false); break;
     case 'ropeUp': climbUp(t.f); break;
+    case 'chuteDown': slideDown(t.f, false); break;
+    case 'door': oilDoor(t.p); break;
     case 'gate': unlockGate(t.p); break;
     case 'mole': feedMole(t.p); break;
     case 'gap': bridgeGap(t.p); break;
@@ -472,6 +476,14 @@ function bridgeGap(p) {
   S.inv.splice(S.inv.indexOf(pl), 1);
   solve(p, 'You lay the planks across the gap and lash them together. It is not pretty, but it will hold.');
 }
+function oilDoor(p) {
+  if (!p) { log('There is no door here.', 'dim'); return; }
+  if (S.solved.has(p.id)) { log('The door already stands open.', 'dim'); return; }
+  const o = S.inv.find(i => i.kind === 'oil');
+  if (!o) { log('The door is rusted solid. Its hinges are crusted thick with orange scale. A drop of oil might do wonders.', 'dim'); return; }
+  S.inv.splice(S.inv.indexOf(o), 1);
+  solve(p, 'You pour the lamp oil over the hinges and wait. Then you heave. With a shriek of tortured iron, the rusted door grinds open.');
+}
 function fillSkin() {
   const sk = S.inv.find(i => i.kind === 'skin' && !i.full);
   if (!sk) { log(S.inv.some(i => i.kind === 'skin') ? 'Your waterskin is already full.' : 'You have nothing to carry water in.', 'dim'); return; }
@@ -504,7 +516,7 @@ function takeItem(it, quiet) {
   if (S.inv.length >= MAX_INV) { log('You can\'t carry any more. You\'ll have to drop something first.', 'warn'); return false; }
   if (it.dropped) { const i = S.dropped.indexOf(it); if (i >= 0) S.dropped.splice(i, 1); }
   else { S.removed.add(it.id); const i = worldItems.indexOf(it); if (i >= 0) worldItems.splice(i, 1); }
-  S.inv.push({ id: it.id, kind: it.kind, name: it.name, value: it.value || 0, mesh: it.mesh, mat: it.mat, full: !!it.full });
+  S.inv.push({ id: it.id, kind: it.kind, name: it.name, value: it.value || 0, mesh: it.mesh, mat: it.mat, full: !!it.full, fragile: !!it.fragile });
   if (it.kind === 'treasure' && !S.found.has(it.id)) {
     S.found.add(it.id); S.score.finds += 2;
     log('Taken: ' + art(it.name) + '. Treasure! (+2)', 'good');
@@ -520,8 +532,27 @@ function dropItem(inv) {
   if (inv.kind === 'treasure' && nearTrunk()) { bank(inv); return; }
   S.inv.splice(S.inv.indexOf(inv), 1);
   const fx = -Math.sin(S.yaw), fz = -Math.cos(S.yaw);
+  if (inv.fragile && !softGround()) { shatter(inv, S.x + fx * 0.9, S.z + fz * 0.9, 'You set the ' + inv.name + ' down on the bare rock a little too briskly.'); return; }
   placeDropped(inv, S.x + fx * 0.9, S.z + fz * 0.9);
-  log('Dropped: ' + art(inv.name) + '.');
+  log('Dropped: ' + art(inv.name) + '.' + (inv.fragile ? ' You set it down very gently.' : ''));
+}
+// moss, mushroom beds and water are kind to fragile things; bare rock is not
+function softGround() {
+  const g = groundInfo(S.level, S.x, S.z);
+  if (g.flags & F_LIQUID) return true;
+  const room = g.room >= 0 ? g.ch.rooms[g.room] : null;
+  return !!room && (room.type === 'camp' || room.type === 'fungus');
+}
+function shatter(inv, x, z, why) {
+  const i = S.inv.indexOf(inv);
+  if (i >= 0) S.inv.splice(i, 1);
+  for (let k = 0; k < 8; k++) particles.push({ x, y: S.y + 0.3, z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2.5, vz: (Math.random() - 0.5) * 3, life: 0.6, max: 0.6, s: 0.6, mat: inv.mat });
+  Sfx.clink(); setTimeout(() => Sfx.clink(), 90);
+  S.broken = (S.broken || 0) + 1;
+  log(why + ' The ' + inv.name + ' shatters into a hundred worthless pieces.', 'bad');
+}
+function breakFragile(why) {
+  for (const it of S.inv.filter(i => i.fragile)) shatter(it, S.x, S.z, why);
 }
 function placeDropped(inv, x, z) {
   let g = groundInfo(S.level, x, z);
@@ -584,8 +615,21 @@ function learnRune(f, read) {
   if (!known) log('(You commit the word ' + f.word + ' to memory.)', 'warn');
 }
 function atCamp() { const c = campCenterPos(); return S.level === 0 && Math.hypot(S.x - c.x, S.z - c.z) < 20; }
+function recallStolen() {
+  const stolen = S.dropped.filter(d => d.stolen);
+  Sfx.magic();
+  if (!stolen.length) { log('"' + S.recallWord + '!" Somewhere far away, something grumbles. The shade has nothing of yours right now.', 'dim'); return; }
+  const t = getChunk(0, 0, 0).features.find(f => f.type === 'trunk');
+  for (const d of stolen) {
+    const a = Math.random() * Math.PI * 2, x = t.x + Math.cos(a) * 1.8, z = t.z + Math.sin(a) * 1.8;
+    Object.assign(d, { L: 0, x, z, y: groundInfo(0, x, z).floor, stolen: false, rk: roomKeyAt(0, x, z) });
+  }
+  log('"' + S.recallWord + '!" The word rings out like a bell. Far away, a furious wail is cut short, and something clatters.', 'good');
+  log('(' + stolen.length + ' stolen treasure' + (stolen.length > 1 ? 's have' : ' has') + ' returned to camp, beside the trunk.)', 'good');
+}
 function sayWord(w) {
   const W = w.toUpperCase();
+  if (S.recallWord && W === S.recallWord) { recallStolen(); return true; }
   let stone = null;
   for (const e of loaded.values()) for (const f of e.ch.features) if (f.type === 'rune' && f.word === W && Math.hypot(f.x - S.x, f.z - S.z) < 7) stone = f;
   if (stone) {
@@ -633,8 +677,16 @@ function climbDown(f, fell) {
 }
 function shaftFall(g) {
   const x = (g.gx + 0.5) * CELL, z = (g.gz + 0.5) * CELL;
+  if (g.ch.features.some(f => f.type === 'chuteDown' && f.gx === g.gx && f.gz === g.gz)) { slideDown({ x, z }, true); return; }
   Sfx.fall();
+  breakFragile('Something in your pack goes crunch on the way down.');
   changeLevel(S.level + 1, x + 1.3, z, ['You tumble down the shaft, bouncing painfully off the walls, and land in a heap.'], 30, 'fall');
+}
+function slideDown(f, fell) {
+  Sfx.fall();
+  breakFragile('You bounce off the walls of the chute, and something in your pack goes crunch.');
+  changeLevel(S.level + 1, f.x + 1.3, f.z, [fell ? 'Whoa! Your feet go out from under you and you whizz down a polished stone chute...' : 'You sit on the lip of the chute and push off. Down, down, round and down...',
+    'You shoot out of the ceiling and land in a heap. The chute above is far too steep and slick to climb. There is no going back that way.']);
 }
 function climbUp(f) {
   const L = S.level - 1;
@@ -677,6 +729,8 @@ function die(msg) {
   Sfx.die();
   S.score.deaths++;
   const p = S.lastSafe || { L: S.level, x: S.x, y: S.y, z: S.z };
+  for (const it of S.inv.filter(i => i.fragile)) { S.broken = (S.broken || 0) + 1; log('(The ' + it.name + ' did not survive your fall.)', 'dim'); }
+  S.inv = S.inv.filter(i => !i.fragile);
   for (const it of S.inv) {
     S.dropped.push(Object.assign({}, it, { L: p.L, x: p.x + (Math.random() - 0.5) * 1.2, z: p.z + (Math.random() - 0.5) * 1.2, y: p.y,
       dropped: true, ph: Math.random() * 6, rk: '' }));
@@ -722,10 +776,15 @@ function steal(c) {
   const it = ts[Math.floor(Math.random() * ts.length)];
   S.inv.splice(S.inv.indexOf(it), 1);
   const nest = nestLocation();
-  S.dropped.push(Object.assign({}, it, { L: S.level, x: nest.x, z: nest.z, y: nest.y, dropped: true, ph: 0, rk: nest.rk }));
+  S.dropped.push(Object.assign({}, it, { L: S.level, x: nest.x, z: nest.z, y: nest.y, dropped: true, ph: 0, rk: nest.rk, stolen: true }));
   Sfx.shade();
   log('A pale, grinning shape glides out of the dark and plucks the ' + it.name + ' from your pack! "Mine, mine, all mine!" it whispers, and is gone.', 'bad');
   log('(It fled to the ' + dirWord(nest.x - S.x, nest.z - S.z) + '. Its nest must lie somewhere that way.)', 'warn');
+  if (!S.recallWord) {
+    S.recallWord = runeWord(new RNG(hash4(S.seed, 0x5ade, 1, 2)));
+    log('As it vanishes, a scrap of grey cloth flutters down from its robes. Scrawled on it in shaky letters is a single word: ' + S.recallWord + '.', 'warn');
+    log('(You commit the word ' + S.recallWord + ' to memory.)', 'warn');
+  }
 }
 function nestLocation() {
   const CW = CELL * CHUNK, pcx = Math.floor(S.x / CW), pcz = Math.floor(S.z / CW);
@@ -752,7 +811,7 @@ function updateParticles(dt) {
 }
 
 // ---------------------------------------------------------------- parser
-const HELP_LINES_EXTRA = 'Puzzles: UNLOCK GATE, FEED MOLE, BRIDGE GAP, FILL WATERSKIN, POUR WATER, CLIMB VINE. Stuck? Type HINT (it costs 5 points).';
+const HELP_LINES_EXTRA = 'Puzzles: UNLOCK GATE, OIL DOOR, FEED MOLE, BRIDGE GAP, FILL WATERSKIN, POUR WATER, CLIMB VINE. Some shafts are one-way chutes (DOWN to slide). Fragile treasures break if dropped on hard rock. Stuck? Type HINT (it costs 5 points).';
 const HELP_LINES = [
   'Explore the endless cave. Find treasure. Carry it back to the trunk at camp to score.',
   'Move W A S D, look with the mouse, Shift to run, Space to jump.',
@@ -803,7 +862,7 @@ function runCommand(raw) {
         if (rest.includes('stone') || rest.includes('rune')) { const f = featureNear('rune', 4); if (f) { learnRune(f, true); return; } }
         const it = nearOrHeld();
         if (!it) { log('You see no such thing here.', 'dim'); return; }
-        if (it.kind === 'treasure') log('It\'s ' + art(it.name) + '. Back in the trunk at camp it would be worth about ' + it.value + ' points.');
+        if (it.kind === 'treasure') log('It\'s ' + art(it.name) + '. Back in the trunk at camp it would be worth about ' + it.value + ' points.' + (it.fragile ? ' It looks terribly fragile: don\'t drop it anywhere hard.' : ''));
         else if (it.kind === 'oil') log('A dented tin flask of lamp oil. Pour it into your lamp with FILL (or press R).');
         else if (it.kind === 'food') log('It looks... edible, probably. EAT it (or press X) to restore health.');
         else if (it.kind === 'axe') log('A small, well-balanced throwing axe. Click to throw it, then go and fetch it.');
@@ -850,6 +909,7 @@ function runCommand(raw) {
       return;
     }
     case 'fill': case 'refuel': case 'refill': case 'oil': {
+      if ((verb === 'oil' || rest.includes('door') || rest.includes('hinges') || rest.includes('hinge')) && nearPuzzle('door') && !S.solved.has(nearPuzzle('door').id)) { oilDoor(nearPuzzle('door')); return; }
       const wantsSkin = rest.some(w => ['skin', 'waterskin', 'water', 'bottle'].includes(w));
       const inWater = groundInfo(S.level, S.x, S.z).flags & F_LIQUID;
       if (wantsSkin || (inWater && !rest.includes('lamp') && S.inv.some(i => i.kind === 'skin' && !i.full) && verb === 'fill')) { fillSkin(); return; }
@@ -857,11 +917,12 @@ function runCommand(raw) {
       return;
     }
     case 'pour': case 'water':
-      if (rest.includes('oil')) { refuel(); return; }
+      if (rest.includes('oil')) { const d = nearPuzzle('door'); if (d && !S.solved.has(d.id) && !rest.includes('lamp')) oilDoor(d); else refuel(); return; }
       waterBulb(nearPuzzle('vine'));
       return;
     case 'unlock': case 'open':
       if (rest.includes('trunk') || rest.includes('chest')) { if (nearTrunk()) depositAll(); else log('The trunk is back at camp.', 'dim'); return; }
+      if (!nearPuzzle('gate') && nearPuzzle('door')) { const d = nearPuzzle('door'); log(S.solved.has(d.id) ? 'It is already open.' : 'You heave at the door. It is rusted solid and won\'t budge an inch. Perhaps some oil on the hinges?', 'dim'); return; }
       unlockGate(nearPuzzle('gate'));
       return;
     case 'feed': case 'give': case 'offer':
@@ -882,7 +943,10 @@ function runCommand(raw) {
       const vp = nearPuzzle('vine', 4);
       if (vp && S.solved.has(vp.id) && (rest.includes('vine') || (goUp ? S.y < vp.y + 2 : S.y > vp.y + 2))) { climbVine(vp); return; }
       if (goUp) { const f = featureNear('ropeUp', 4); if (f) climbUp(f); else log(atCamp() ? 'Above you is only sky, and you are not a bird.' : 'There is nothing to climb up here.', 'dim'); }
-      else { const f = featureNear('ropeDown', 4); if (f) climbDown(f, false); else log('There is no way down here. Look for a rope over a shaft.', 'dim'); }
+      else {
+        const f = featureNear('ropeDown', 4), ch = featureNear('chuteDown', 4);
+        if (f) climbDown(f, false); else if (ch) slideDown(ch, false); else log('There is no way down here. Look for a rope over a shaft.', 'dim');
+      }
       return;
     }
     case 'score': showScore(); return;
@@ -893,6 +957,8 @@ function runCommand(raw) {
     case 'quit': case 'q': case 'restart': case 'new': saveGame(true); showTitle(); return;
     case 'words': case 'runes': case 'journal': case 'notes': case 'memory': {
       const ws = Object.keys(S.runes);
+      if (S.recallWord) log('  ' + S.recallWord + ' (from the shade\'s scrap: brings stolen treasure home)', 'warn');
+      if (!ws.length && S.recallWord) return;
       if (!ws.length) { log('You have not learned any magic words yet. Look for carved standing stones.', 'dim'); return; }
       log('Words you remember:');
       for (const w of ws) log('  ' + w + ' (level ' + S.runes[w].L + ')', 'warn');
@@ -938,6 +1004,8 @@ function hintTopic() {
   const has = k => S.inv.some(i => i.kind === k);
   if (S.closing) return ['closing', 'The cave is closing! Get back to camp, the sunlit sinkhole on level 0, before the last bell. Climb ropes up, or SAY a magic word beside its stone.'];
   const gate = nearPuzzle('gate', 8), mole = nearPuzzle('mole', 8), gap = nearPuzzle('gap', 8), vine = nearPuzzle('vine', 8);
+  const door = nearPuzzle('door', 8);
+  if (door && !S.solved.has(door.id)) return has('oil') ? ['door2', 'Pour your lamp oil on the hinges: OIL DOOR. (You will have to find more oil for your lamp, mind.)'] : ['door', 'Rust has the door stuck fast. Oil would loosen it. Lamp oil is oil, and there are flasks lying about.'];
   if (gate && !S.solved.has(gate.id)) return has('key') ? ['gate2', 'You have a key. Try UNLOCK GATE.'] : ['gate', 'Gates like this are always locked, but a key is usually lying somewhere in the same stretch of cave. Search the nearby rooms.'];
   if (mole && !S.solved.has(mole.id)) return has('food') ? ['mole2', 'Try FEED MOLE.'] : ['mole', 'The mole isn\'t vicious, just hungry. Bring it something to eat. Food turns up all over the cave.'];
   if (gap && !S.solved.has(gap.id)) return has('planks') ? ['gap2', 'Try BRIDGE GAP.'] : ['gap', 'Too far to jump. Something long and flat could span it. Look for planks in the nearby rooms.'];
@@ -1231,6 +1299,7 @@ function drawMap(ctx, w, h, scale, full) {
       const li = (Math.floor(f.z / CELL) - cz * CHUNK) * CHUNK + (Math.floor(f.x / CELL) - cx * CHUNK);
       if (!arr[li]) continue;
       if (f.type === 'ropeDown') mark(f.x, f.z, '#ffd24a', 'rope down');
+      else if (f.type === 'chuteDown') mark(f.x, f.z, '#ff8a4a', 'chute (one way)');
       else if (f.type === 'ropeUp') mark(f.x, f.z, '#9fe0ff', 'rope up');
       else if (f.type === 'rune') mark(f.x, f.z, '#c58cff', f.word);
       else if (f.type === 'trunk') mark(f.x, f.z, '#7cff8a', 'camp');
@@ -1285,7 +1354,15 @@ function render() {
   for (const e of loaded.values()) for (const p of e.ch.puzzles) {
     const done = S.solved.has(p.id);
     const yaw = Math.atan2(p.dir[0], p.dir[1]);
-    if (p.type === 'gate' && !done) R.drawEntity(getModel('gate', 'METAL'), m4trs(p.ox - p.dir[0] * 1.1, p.y, p.oz - p.dir[1] * 1.1, yaw, 0, 0, 1), sampleLight(p.ox, p.y + 1, p.oz));
+    if (p.type === 'door') {
+      const perp = [p.dir[1], -p.dir[0]], cx = p.ox - p.dir[0] * 1.1, cz = p.oz - p.dir[1] * 1.1;
+      if (!done) R.drawEntity(getModel('door', 'WOOD'), m4trs(cx, p.y, cz, yaw, 0, 0, 1), sampleLight(cx, p.y + 1, cz));
+      else {   // swung open against the corridor wall
+        const hx = cx - perp[0] * 1.15, hz = cz - perp[1] * 1.15;
+        R.drawEntity(getModel('door', 'WOOD'), m4trs(hx + p.dir[0] * 1.1, p.y, hz + p.dir[1] * 1.1, yaw + Math.PI / 2, 0, 0, 0.95), sampleLight(hx, p.y + 1, hz));
+      }
+    }
+    else if (p.type === 'gate' && !done) R.drawEntity(getModel('gate', 'METAL'), m4trs(p.ox - p.dir[0] * 1.1, p.y, p.oz - p.dir[1] * 1.1, yaw, 0, 0, 1), sampleLight(p.ox, p.y + 1, p.oz));
     else if (p.type === 'mole') {
       const breathe = 1 + Math.sin(gameTime * (done ? 1.2 : 3)) * 0.03;
       if (!done) R.drawEntity(getModel('mole', 'DIRT'), m4trs(p.ox, p.y, p.oz, yaw + Math.PI, 0, 0, breathe), sampleLight(p.ox, p.y + 1, p.oz));
@@ -1300,7 +1377,7 @@ function render() {
   for (const p of projectiles) {
     const light = sampleLight(p.x, p.y, p.z);
     const yaw = Math.atan2(p.vx, p.vz);
-    if (p.type === 'axe') R.drawEntity(getModel('axe', 'METAL'), m4mul(m4trs(p.x, p.y, p.z, yaw, p.spin, 0, 1.3), m4t(0, -0.35, 0)), light);
+    if (p.type === 'axe' || p.type === 'gaxe') R.drawEntity(getModel('axe', 'METAL'), m4mul(m4trs(p.x, p.y, p.z, yaw, p.spin, 0, 1.3), m4t(0, -0.35, 0)), light);
     else R.drawEntity(getModel('knife', 'METAL'), m4mul(m4trs(p.x, p.y, p.z, yaw, Math.PI / 2, 0, 1.5), m4t(0, -0.15, 0)), light);
   }
   for (const p of particles) {
