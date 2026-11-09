@@ -580,7 +580,7 @@ function reincarnate() {
   const sp = campSpawnPos();
   changeLevel(0, sp.x, sp.z, ['There is a flash of orange smoke. You wake beside the campfire, coughing, oddly unharmed.',
     'Your belongings lie wherever you fell.']);
-  lockPointer();
+  if (!AI.on) lockPointer();
 }
 
 // ---------------------------------------------------------------- creatures
@@ -923,9 +923,11 @@ const KEYS_HTML = '<div class="keys"><b>W A S D</b><span>move · mouse to look �
   '<b>Click</b><span>throw your axe</span>' +
   '<b>M · I · L</b><span>map · inventory · look around</span>' +
   '<b>Enter</b><span>type a command: TAKE ALL, DROP IDOL, SCORE, SAY &lt;word&gt;, HELP...</span>' +
+  '<b>B · G</b><span>AI plays at 5× · autopilot home to camp (any key takes back control)</span>' +
   '<b>P · K · Esc</b><span>pixel size · sound · pause</span></div>';
 function hasSave() { try { return !!localStorage.getItem(SAVE_KEY); } catch (e) { return false; } }
 function showTitle() {
+  stopAutopilot();
   mode = 'title'; closeConsole(); setMap(false);
   hud.classList.add('hidden');
   document.exitPointerLock && document.exitPointerLock();
@@ -934,6 +936,7 @@ function showTitle() {
     '<p>Somewhere beneath the hills lies a cave that, according to every drunk in the valley, never ends. It is said to be stuffed with treasure. It is said to be haunted by things that hate the light. They say a lot of things.</p>' +
     '<p>Explore as far and as deep as you dare. Carry what you find back to the trunk at your camp. Keep your lamp burning.</p>' + KEYS_HTML +
     '<div class="btns"><button id="bNew">New expedition</button><button id="bCont"' + (hasSave() ? '' : ' disabled') + '>Continue</button>' +
+    '<button id="bAI">Watch the AI play (' + AI_SPEED + '×)</button>' +
     '<span class="sub">seed</span><input class="seed" id="seedIn" value="' + (Math.floor(Math.random() * 1e6)) + '"></div></div>';
   $('bNew').onclick = () => {
     Sfx.init();
@@ -942,8 +945,15 @@ function showTitle() {
     beginPlay(true);
   };
   $('bCont').onclick = () => { Sfx.init(); if (loadGame()) beginPlay(false); };
+  $('bAI').onclick = () => {
+    Sfx.init();
+    const v = parseInt($('seedIn').value, 10);
+    startNewGame(isNaN(v) ? Math.floor(Math.random() * 1e9) : v);
+    beginPlay(true, true);
+    startAutopilot(false);
+  };
 }
-function beginPlay(intro) {
+function beginPlay(intro, noLock) {
   hideOverlay(); hud.classList.remove('hidden');
   mode = 'play'; fade = 1; fadeTarget = 0;
   if (intro) {
@@ -954,7 +964,7 @@ function beginPlay(intro) {
     S.curRoom = 'intro';
     const c = getChunk(0, 0, 0); S.visited.add('0:0:0:0'); markRoom(c, 0);
   }
-  lockPointer();
+  if (!noLock) lockPointer();
 }
 function showPause() {
   mode = 'paused'; closeConsole();
@@ -962,13 +972,15 @@ function showPause() {
   overlay.innerHTML = '<div class="panel"><h2>Paused</h2><p>Score ' + totalScore() + ' · ' + rankFor(totalScore()) + ' · level ' + S.level + ' (' + regionFor(S.level).name + ')</p>' + KEYS_HTML +
     '<div class="setting"><label for="sensIn">Mouse sensitivity</label><input type="range" id="sensIn" min="0.1" max="4" step="0.05" value="' + sensMul + '">' +
     '<span id="sensVal">' + sensMul.toFixed(2) + '×</span></div>' +
-    '<div class="btns"><button id="bRes">Resume</button><button id="bSave">Save</button><button id="bQuit">Quit to title</button></div></div>';
+    '<div class="btns"><button id="bRes">Resume</button><button id="bAI">Let the AI play (' + AI_SPEED + '×)</button><button id="bHome">Autopilot: go home</button><button id="bSave">Save</button><button id="bQuit">Quit to title</button></div></div>';
   $('sensIn').oninput = e => {
     sensMul = parseFloat(e.target.value);
     $('sensVal').textContent = sensMul.toFixed(2) + '×';
     try { localStorage.setItem(SENS_KEY, String(sensMul)); } catch (err) { /* ignore */ }
   };
   $('bRes').onclick = () => { hideOverlay(); mode = 'play'; lockPointer(); };
+  $('bAI').onclick = () => { hideOverlay(); mode = 'play'; startAutopilot(false); };
+  $('bHome').onclick = () => { hideOverlay(); mode = 'play'; startAutopilot(true); };
   $('bSave').onclick = () => { saveGame(false); $('bSave').textContent = 'Saved'; };
   $('bQuit').onclick = () => { saveGame(true); showTitle(); };
 }
@@ -1035,7 +1047,10 @@ function updateHUD() {
   let h = '';
   for (const i of S.inv) h += '<div class="' + (i.kind === 'treasure' ? 't' : '') + '">' + i.name + '</div>';
   $('inv').innerHTML = h + '<div style="opacity:.6">' + S.inv.length + '/' + MAX_INV + ' carried</div>';
-  promptEl.textContent = promptText(interactTarget);
+  promptEl.textContent = AI.on ? '' : promptText(interactTarget);
+  const ban = $('aiBanner');
+  ban.classList.toggle('on', AI.on);
+  if (AI.on) ban.textContent = (AI.homeOnly ? 'AUTOPILOT HOME ' : 'AUTOPILOT ') + AI_SPEED + '× · ' + AI.status + ' · any key to take over';
 }
 function drawMap(ctx, w, h, scale, full) {
   ctx.clearRect(0, 0, w, h);
@@ -1166,14 +1181,14 @@ function render() {
 }
 
 // ---------------------------------------------------------------- main loop
-function update(dt) {
+function update(dt, stream = true) {
   if (pending) { pending.t -= dt; if (pending.t <= 0) { const fn = pending.fn; pending = null; fn(); } return; }
   if (mode !== 'play' || consoleOpen) return;
   S.time += dt;
   const sens = BASE_SENS * sensMul;
   S.yaw -= mouseDX * sens; S.pitch = clamp(S.pitch - mouseDY * sens, -1.45, 1.45);
   mouseDX = mouseDY = 0;
-  streamChunks(false);
+  if (stream) streamChunks(false);
   const { g, moving } = updatePlayer(dt);
   if (mode !== 'play') return;
   if (S.lampOn && S.fuel > 0) {
@@ -1198,6 +1213,7 @@ function frame(now) {
   gameTime += dt;
   if (S) {
     if (mode === 'title') { S.yaw += dt * 0.08; S.pitch = 0.12; mouseDX = mouseDY = 0; }
+    else if (AI.on) { for (let k = 0; k < AI_SPEED; k++) { aiStep(dt); update(dt, k === 0); } }
     else update(dt);
     fade += (fadeTarget - fade) * Math.min(1, dt * (fadeTarget > fade ? 6 : 2.5));
     flash = Math.max(0, flash - dt * 1.2);
@@ -1227,6 +1243,14 @@ addEventListener('keydown', e => {
     else if (e.code === 'ArrowDown') { e.preventDefault(); histIdx = Math.min(cmdHistory.length, histIdx + 1); cmdEl.value = cmdHistory[histIdx] || ''; }
     return;
   }
+  if (AI.on) {
+    // any key interrupts the autopilot; Esc also pauses
+    e.preventDefault();
+    stopAutopilot();
+    log('[You take back control.]', 'cmd');
+    if (mode === 'play') { if (e.code === 'Escape') showPause(); else lockPointer(); }
+    return;
+  }
   if (mode === 'dead' && e.code === 'Enter') { reincarnate(); return; }
   if (mode === 'paused' && e.code === 'Enter') { hideOverlay(); mode = 'play'; lockPointer(); return; }
   if (mode !== 'play') return;
@@ -1245,6 +1269,8 @@ addEventListener('keydown', e => {
     case 'KeyH': for (const h of HELP_LINES) log(h, 'dim'); break;
     case 'KeyP': cycleRes(); break;
     case 'KeyK': log(Sfx.toggleMute() ? 'Sound off.' : 'Sound on.', 'dim'); break;
+    case 'KeyB': startAutopilot(false); break;
+    case 'KeyG': startAutopilot(true); break;
   }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -1254,12 +1280,13 @@ addEventListener('mousemove', e => {
 });
 canvas.addEventListener('mousedown', e => {
   Sfx.init();
+  if (AI.on && mode === 'play') { stopAutopilot(); log('[You take back control.]', 'cmd'); lockPointer(); return; }
   if (mode !== 'play') return;
   if (document.pointerLockElement !== canvas) { lockPointer(); return; }
   if (e.button === 0 && !consoleOpen) throwAxe();
 });
 document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement !== canvas && mode === 'play' && !consoleOpen) showPause();
+  if (document.pointerLockElement !== canvas && mode === 'play' && !consoleOpen && !AI.on) showPause();
 });
 cmdEl.addEventListener('blur', () => { if (consoleOpen) setTimeout(() => consoleOpen && cmdEl.focus(), 0); });
 

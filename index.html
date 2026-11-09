@@ -34,6 +34,9 @@
   #minimap { position: absolute; top: 40px; right: 14px; width: 168px; height: 168px; border: 2px solid var(--edge); image-rendering: pixelated; }
   #inv { position: absolute; top: 218px; right: 14px; width: 210px; text-align: right; font-size: 19px; line-height: 1.05; }
   #inv .t { color: var(--good); }
+  #aiBanner { position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); display: none; font-size: 22px; color: #9fd8c8;
+    background: rgba(6, 18, 16, 0.75); border: 2px solid #2f6a5e; padding: 2px 12px; white-space: nowrap; max-width: 94vw; overflow: hidden; text-overflow: ellipsis; }
+  #aiBanner.on { display: block; }
   #crosshair { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: var(--amber); opacity: .7; }
   #prompt { position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); font-size: 24px; color: #fff1c8; white-space: nowrap; }
   #status { position: absolute; left: 14px; bottom: 12px; font-size: 21px; }
@@ -82,6 +85,7 @@
   <div id="inv"></div>
   <div id="crosshair"></div>
   <div id="prompt"></div>
+  <div id="aiBanner"></div>
   <div id="status">
     <div>HEALTH <span id="lives"></span></div><div class="bar"><div id="hpFill"></div></div>
     <div>LAMP OIL <span id="lampState"></span></div><div class="bar"><div id="fuelFill"></div></div>
@@ -99,5 +103,6 @@
 <script src="js/renderer.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/game.js"></script>
+<script src="js/autopilot.js"></script>
 </body>
 </html>

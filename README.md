@@ -21,6 +21,7 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 - **Gloomkins** throw knives from the dark (the first one always misses). Throw your axe back, then go and pick it up.
 - **The shade** steals treasure and hides it in a nest somewhere nearby.
 - **Reincarnation.** You get three. Your belongings stay where you fell.
+- **Autopilot.** "Watch the AI play" on the title screen (or B) hands the game to an AI at 5× speed. It explores, fights, banks treasure and uses magic words, typing its commands as it goes. "Autopilot: go home" on the pause screen (or G) takes you back to camp. Any key takes back control.
 
 ## Controls
 
@@ -32,6 +33,8 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 | Click | throw axe |
 | M, I, L | map, inventory, look |
 | Enter | type a command |
+| B | let the AI play at 5× speed |
+| G | autopilot home: walk back to camp, bank treasure, refill (any key takes back control) |
 | P, K, Esc | pixel size, sound, pause |
 
 ## Code
@@ -45,3 +48,4 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 | `js/renderer.js` | WebGL2 renderer: low-res target, banded light, fog, upscale |
 | `js/audio.js` | synthesised WebAudio sound |
 | `js/game.js` | player, parser, creatures, lamp, map, save/load, HUD |
+| `js/autopilot.js` | the AI player: A* pathfinding, goal selection, typed commands |
