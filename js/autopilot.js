@@ -250,10 +250,12 @@ function itemWanted(m) {
   }
   return false;
 }
+function nearWyrm(x, z, r) { return creatures.some(c => c.type === 'wyrm' && c.state !== 'dying' && Math.hypot(c.home.x - x, c.home.z - z) < r); }
 function nearestItem(pred, range) {
   let best = null, bd = range;
   for (const m of MEM.items.values()) {
     if (m.L !== S.level || AI.unreachable.has('item:' + m.key) || !pred(m)) continue;
+    if (nearWyrm(m.x, m.z, 16)) continue;
     const d = dist2d(m.x, m.z);
     if (d < bd) { bd = d; best = m; }
   }
@@ -313,6 +315,7 @@ function ropeDownGoal() {
 // ---- 2. frontier exploration ------------------------------------------------
 function seenCell(L, gx, gz) { return MEM.seen.has(L + ':' + gx + ':' + gz); }
 function isFrontier(L, x, z) {
+  if (nearWyrm((x + 0.5) * CELL, (z + 0.5) * CELL, 14)) return false;
   if (!seenCell(L, x, z) || aiFloor(L, x, z) === null || AI.unreachable.has('frontier:' + L + ':' + x + ':' + z)) return false;
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     if (!seenCell(L, x + dx, z + dz) && aiFloor(L, x + dx, z + dz) !== null) return true;
@@ -494,6 +497,11 @@ function chooseGoal() {
         label: 'looking around the hidden shelf', act: () => {} };
     }
   }
+  const angry = creatures.find(c => c.type === 'wyrm' && c.state !== 'sleep' && c.state !== 'dying' && c.state !== 'return' && dist2d(c.x, c.z) < 26);
+  if (angry) {
+    const g = campGoal() || ropeDownGoal();
+    if (g) { g.label = 'running from the Cinder Wyrm!'; return g; }
+  }
   const treasures = countInv('treasure');
   const needHome = S.inv.length >= MAX_INV || treasures >= 4 || (S.fuel < 40 && !countInv('oil')) ||
     (S.health < 40 && !countInv('food'));
@@ -535,6 +543,7 @@ function aiCombat(dt) {
   if (!countInv('axe')) return false;
   let best = null, bd = 19;
   for (const c of creatures) {
+    if (c.type === 'wyrm' || c.state === 'dying') continue;     // the AI leaves the wyrm alone
     const d = dist2d(c.x, c.z);
     if (d < bd && los(S.level, S.x, S.y + 1.5, S.z, c.x, c.y + 1, c.z)) { bd = d; best = c; }
   }
@@ -545,6 +554,10 @@ function aiCombat(dt) {
   S.yaw += clamp(da, -8 * dt, 8 * dt);
   const t = bd / 21, dy = (best.y + 0.8) - (S.y + 1.45) + 4.5 * t * t - 0.8 * t;
   S.pitch = Math.atan2(dy, bd);
+  if (bd < 2.3) {                                               // close: swing
+    if (Math.abs(da) < 0.4 && swingCool <= 0) aiSay('attack');
+    return true;
+  }
   if (Math.abs(da) < 0.06) {
     AI.aimT += dt;
     if (AI.aimT > 0.2) { AI.aimT = 0; aiSay('throw axe'); setGoal(null); }

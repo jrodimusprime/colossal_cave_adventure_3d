@@ -18,7 +18,8 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 - **The lamp.** It burns oil. Refill it at the camp barrel or with flasks found below. In pitch darkness you may fall into a pit.
 - **Typed commands.** Press Enter for a parser: `TAKE ALL`, `DROP IDOL`, `INVENTORY`, `LOOK`, `SCORE`, `FILL`, `EAT`, `SAY <word>`, `BRIEF`/`VERBOSE`, `SAVE`/`RESTORE`, `HELP`.
 - **Magic words.** Carved standing stones each bear a word. Say it beside the stone to return to camp, or at camp to return to the stone.
-- **Gloomkins** throw knives from the dark (the first one always misses). Throw your axe back, then go and pick it up.
+- **Gloomkins** throw knives from the dark (the first one always misses). Every attack is telegraphed: an arm goes back before a knife flies, a crouch before a lunge. Click to swing your axe, right-click or Q to throw it (then go and pick it up). Hits knock them back; deeper gloomkins take two or three.
+- **The Cinder Wyrm** sleeps on a hoard of double-value treasure in rare lairs from level 4 down. Your lamplight or running wakes it; sneaking past with the lamp off is possible, if dangerous. It breathes fire (watch for the glowing throat), bites, and sweeps its tail at anyone behind it. It won't leave its lair. Eight axe hits kill it for good (+50).
 - **The shade** steals treasure and hides it in a nest somewhere nearby.
 - **Reincarnation.** You get three. Your belongings stay where you fell.
 - **Puzzles.** Hidden rooms full of richer treasure sit behind obstacles. The thing you need is somewhere in the same stretch of cave:
@@ -46,7 +47,8 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 | W A S D, mouse | move, look (Shift run, Space jump) |
 | E | take / use (ropes, trunk, barrel, standing stones) |
 | F / R / X | lamp on-off / refuel / eat |
-| Click | throw axe |
+| Click | swing axe |
+| Right-click / Q | throw axe |
 | M, I, L | map, inventory, look |
 | Enter | type a command |
 | B | let the AI play at 5× speed |
@@ -64,4 +66,5 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 | `js/renderer.js` | WebGL2 renderer: low-res target, banded light, fog, upscale |
 | `js/audio.js` | synthesised WebAudio sound |
 | `js/game.js` | player, parser, creatures, lamp, map, save/load, HUD |
+| `js/combat.js` | creatures, jointed-model animation, melee, knockback, the Cinder Wyrm |
 | `js/autopilot.js` | the AI player: memory, frontier exploration, GOAP planner, A* pathfinding |

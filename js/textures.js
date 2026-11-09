@@ -7,7 +7,7 @@
 const TEX_NAMES = ['ROCK', 'ROCK2', 'BASALT', 'FLOWSTONE', 'DIRT', 'MOSS', 'CRYSTAL', 'CRYSTAL2', 'CRYSTAL3',
   'FUNGUS', 'LAVA', 'SKY', 'WATER', 'WOOD', 'GOLD', 'SILVER', 'RUBY', 'EMERALD', 'SAPPHIRE', 'AMETHYST',
   'JADE', 'OBSIDIAN', 'SKIN', 'CLOTH', 'BONE', 'ROPE', 'METAL', 'GLASS', 'BLACK', 'STONE', 'MUSHCAP',
-  'EYE', 'FIRE', 'SMOKE', 'PALE'];
+  'EYE', 'FIRE', 'SMOKE', 'PALE', 'SCALES'];
 const T = {};
 TEX_NAMES.forEach((n, i) => { T[n] = i; });
 const TEX_SIZE = 64;
@@ -164,6 +164,9 @@ const TEXGEN = {
   EYE: { ramp: ['#ff3010', '#ff6020', '#ffa040', '#ffe080'], e: 1, f: (px, py, s) => 0.3 + 0.7 * tfbm(px, py, 8, 2, s) },
   FIRE: { ramp: ['#7a1a02', '#c43c06', '#f07012', '#ffa82a', '#ffd860', '#fff4b0'], e: 1, f: (px, py, s) => 0.2 + 0.8 * tfbm(px, py, 4, 3, s) },
   SMOKE: { ramp: ['#2a2a2a', '#3a3a3a', '#4a4a4a', '#5a5a5a', '#6a6a6a'], f: (px, py, s) => tfbm(px, py, 4, 3, s) },
+  SCALES: { ramp: ['#1e0605', '#3a0c08', '#5c160c', '#842414', '#a8381a', '#c85a24', '#e08a3a'],
+    pre: s => makeCells(7, s),
+    f: (px, py, s, c) => { const k = cellAt(c, px, py); return clamp(0.15 + 0.6 * (1 - k.f1 * 9) + 0.2 * k.id + (k.f2 - k.f1 < 0.01 ? -0.4 : 0), 0, 0.999); } },
   PALE: { ramp: ['#8a8f98', '#a0a6b0', '#b8bec8', '#d0d6de'], e: 0.25, f: (px, py, s) => tfbm(px, py, 4, 3, s) },
 };
 

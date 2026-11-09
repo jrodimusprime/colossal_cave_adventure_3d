@@ -37,13 +37,14 @@ function floorBase(wx, wz, L) {
 }
 
 const ROOM_R = { cavern: [6, 8.5], grotto: [3, 4.5], hall: [4, 6], lake: [5, 7], chasm: [5, 7], crystal: [4, 6], fungus: [4.5, 7],
-  lava: [5, 7], shrine: [3.8, 5], columns: [5, 7], landing: [2.8, 2.8], camp: [7, 7] };
+  lava: [5, 7], shrine: [3.8, 5], columns: [5, 7], landing: [2.8, 2.8], camp: [7, 7], lair: [7.5, 8.5] };
 const ROOM_H = { cavern: [11, 17], grotto: [4.5, 6], hall: [7, 10], lake: [6, 10], chasm: [9, 14], crystal: [6, 9], fungus: [6, 10],
-  lava: [8, 12], shrine: [6, 8], columns: [8, 12], landing: [4.5, 4.5], camp: [30, 30] };
+  lava: [8, 12], shrine: [6, 8], columns: [8, 12], landing: [4.5, 4.5], camp: [30, 30], lair: [14, 18] };
 
 function pickRoomType(rng, L) {
   const w = {
     cavern: 3, grotto: 3, hall: 2, lake: 1.5, chasm: L > 0 ? 1.2 : 0.3, columns: 1.2, shrine: L > 0 ? 0.8 : 0.2,
+    lair: L >= 4 ? 0.4 : 0,
     crystal: L >= 4 ? 3 : L >= 2 ? 0.8 : 0.15, fungus: L >= 6 ? 3 : L >= 3 ? 0.6 : 0, lava: L >= 8 ? 2.5 : L >= 6 ? 0.5 : 0,
   };
   let tot = 0; for (const k in w) tot += w[k];
@@ -95,7 +96,7 @@ function planBase(cx, cz, L) {
     shafts.push({ x: sx, z: sz, ri });
   };
   const eligible = [];
-  rooms.forEach((r, i) => { if (!['lake', 'lava', 'chasm'].includes(r.type)) eligible.push(i); });
+  rooms.forEach((r, i) => { if (!['lake', 'lava', 'chasm', 'lair'].includes(r.type)) eligible.push(i); });
   for (const ri of eligible) if (rooms[ri].type === 'camp' || rng.chance(0.28)) addShaft(ri);
   if (!shafts.length && eligible.length) addShaft(eligible[0]);
   p = { rooms, shafts };
@@ -246,7 +247,7 @@ function carveRoom(ch, room, ri) {
     const dome = h => Math.max(3.8, h * Math.sqrt(Math.max(0, 1 - 0.82 * t * t)));
     let kind = 1, fl = base, ce, flags = 0, liq = 0;
     switch (room.type) {
-      case 'cavern': fl = base + nz * 0.8; ce = base + dome(room.h) + nz * 1.5; break;
+      case 'cavern': case 'lair': fl = base + nz * 0.8; ce = base + dome(room.h) + nz * 1.5; break;
       case 'hall': fl = room.baseY * 0.6 + base * 0.4; ce = fl + room.h - t * t * 2.5 + nz; break;
       case 'lake': {
         const wy = room.baseY - 0.35;
@@ -442,7 +443,7 @@ function populate(ch, rng) {
       const len = Math.min(rng.range(0.8, 3.4), p.ceil - p.y - 2.7);
       if (len > 0.5) ch.props.push({ t: 'tite', x: p.x, z: p.z, y: p.ceil + 0.4, r: rng.range(0.2, 0.55), h: len + 0.4, layer: reg.wall });
     }
-    if (!['shrine', 'landing', 'lake', 'lava'].includes(room.type)) {
+    if (!['shrine', 'landing', 'lake', 'lava', 'lair'].includes(room.type)) {
       const nM = Math.floor(n * 0.05);
       for (let k = 0; k < nM; k++) {
         const p = take(cells, idx => ch.tval[idx] > 0.35 && notTun(idx), 0.35);
@@ -481,6 +482,22 @@ function populate(ch, rng) {
       case 'fungus': {
         const nF = rng.int(6, 14);
         for (let k = 0; k < nF; k++) addMush(take(cells, notTun, 0.3), rng.range(0.6, 2.2));
+        break;
+      }
+      case 'lair': {
+        // a hoard of treasure, and something asleep on it
+        const cx0 = (ox + room.x) * CELL, cz0 = (oz + room.z) * CELL;
+        const ci = Math.floor(room.x), cj = Math.floor(room.z), cidx = cj * CHUNK + ci;
+        ch.features.push({ type: 'wyrm', id: L + ':' + ch.cx + ':' + ch.cz + ':w' + ri, x: cx0, z: cz0, y: ch.floor[cidx], r: room.r * CELL, face: rng.range(0, 6.28), ri });
+        light(cx0, ch.floor[cidx] + 1.5, cz0, [1.0, 0.5, 0.2], 16, 0.7);
+        for (let k = 0; k < 4; k++) {
+          const p = take(cells, idx => ch.tval[idx] < 0.5, 0.4);
+          if (!p) continue;
+          const t = mkTreasure(rng, L + 2);
+          t.value = Math.round(t.value * 2);
+          addItem(t, p, ri);
+        }
+        for (let k = 0; k < 5; k++) { const p = take(cells, idx => ch.tval[idx] < 0.8, 0.4); if (p) ch.props.push({ t: 'bones', x: p.x, z: p.z, y: p.y, seed: rng.int(0, 1e6) }); }
         break;
       }
       case 'lava':
@@ -615,6 +632,7 @@ const NAME_NOUN = {
   fungus: ['Mushroom Garden', 'Spore Hall', 'Mycelium Grove', 'Fungal Wood'], lava: ['Furnace', 'Forge', 'Cinder Hall', 'Magma Vault'],
   shrine: ['Shrine', 'Sanctum', 'Chapel', 'Altar Room'], columns: ['Pillared Hall', 'Column Forest', 'Colonnade'],
   landing: ['Shaft Bottom', 'Rope Landing', 'Well Bottom'],
+  lair: ['Lair', 'Smoking Cavern', 'Hoard Hall', 'Scorched Vault'],
 };
 const NAME_OF = ['of Echoes', 'of Bones', 'of the Lost Miner', 'of a Thousand Drips', 'of Whispers', 'of the Pale King',
   'of Broken Lanterns', 'of Old Teeth', 'of the Sleeper', 'of Rust', 'of Small Mercies', 'of Regret', 'of the Blind Fish',
@@ -654,6 +672,8 @@ const DESC = {
     'You have found a forgotten shrine. Whoever carved these pillars took great care, and then left in a great hurry.'],
   columns: ['You are in a forest of stone. Thick columns, where stalactites have met stalagmites over aeons, hold up the roof.',
     'Pillars of dripstone rise all around you, some as thick as old oaks.'],
+  lair: ['The air here is hot and reeks of sulphur and old smoke. Bones crunch underfoot. In the middle of the cavern, curled on a glittering heap of treasure, something enormous is asleep.',
+    'Scorch marks streak the walls of this vast cavern. Something huge breathes slowly in the dark, each breath a low rumble, and treasure glints all around it.'],
   landing: ['You are at the bottom of a narrow shaft.', 'You are in a small chamber at the foot of a vertical shaft.'],
   vault: ['You are in a small strongroom hewn from the living rock. Someone went to a great deal of trouble to keep people out of here.',
     'This is a squat, square vault behind the iron gate. The walls bear chisel marks and, here and there, a scratched warning in no language you know.'],
@@ -722,7 +742,7 @@ function maybeAddPuzzle(ch, rng) {
 function tryPuzzle(ch, rng, type) {
   const L = ch.L, rooms = ch.rooms;
   const ri = rng.int(0, rooms.length - 1), room = rooms[ri];
-  if (!room || room.pocket || ['camp', 'landing', 'lava', 'chasm', 'lake'].includes(room.type) || !room.cells.length) return false;
+  if (!room || room.pocket || ['camp', 'landing', 'lava', 'chasm', 'lake', 'lair'].includes(room.type) || !room.cells.length) return false;
   const dir = rng.pick([[1, 0], [-1, 0], [0, 1], [0, -1]]);
   let x = clamp(Math.floor(room.x), 0, CHUNK - 1), z = clamp(Math.floor(room.z), 0, CHUNK - 1);
   if (ch.kind[z * CHUNK + x] !== 1) return false;

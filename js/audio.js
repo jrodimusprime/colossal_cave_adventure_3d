@@ -80,5 +80,11 @@ const Sfx = (() => {
     fall() { tone(700, 1.0, 'sine', 0.08, 90); noise(1.0, 0.1, 400, 'bandpass', 1500, 0, 0.6); },
     thud() { noise(0.25, 0.25, 200, 'lowpass', 60); tone(80, 0.25, 'sine', 0.15, 40); },
     blip() { tone(880, 0.05, 'square', 0.025); },
+    swing() { noise(0.16, 0.12, 900, 'bandpass', 2600, 0, 1.5); },
+    thwack(pan) { noise(0.12, 0.25, 700, 'lowpass', 200, 0, 1, pan); tone(140, 0.12, 'square', 0.08, 70, 0, pan); },
+    grunt(pan) { tone(160, 0.18, 'sawtooth', 0.05, 110, 0, pan); },
+    roar(pan) { tone(90, 1.6, 'sawtooth', 0.14, 45, 0, pan); tone(130, 1.4, 'square', 0.05, 60, 0.05, pan); noise(1.5, 0.18, 500, 'lowpass', 120, 0, 1, pan); },
+    snore(pan) { noise(1.2, 0.06, 220, 'lowpass', 90, 0, 1, pan); tone(55, 1.1, 'sine', 0.05, 45, 0, pan); },
+    fire(pan) { noise(1.3, 0.22, 1800, 'bandpass', 500, 0, 0.6, pan); tone(70, 1.2, 'sawtooth', 0.05, 50, 0, pan); },
   };
 })();

@@ -56,13 +56,13 @@ function newState(seed) {
   return {
     seed, level: 0, x: 0, y: 0, z: 0, yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0, onGround: true,
     health: 100, lives: 3, lampOn: true, fuel: 100, inv: [],
-    score: { rooms: 0, finds: 0, banked: 0, depth: 0, deaths: 0, hints: 0, escape: 0 },
-    solved: new Set(), hintsBought: new Set(), closing: false, closeT: 0, endDone: false,
+    score: { rooms: 0, finds: 0, banked: 0, depth: 0, deaths: 0, hints: 0, escape: 0, slain: 0 },
+    solved: new Set(), hintsBought: new Set(), closing: false, closeT: 0, endDone: false, slain: new Set(), metWyrm: false,
     banked: [], removed: new Set(), dropped: [], visited: new Set(), found: new Set(), runes: {},
     deepest: 0, time: 0, map: {}, kills: 0, verbose: false, curRoom: '', lastSafe: null, knives: 0, metGloom: false,
   };
 }
-function totalScore() { const s = S.score; return s.rooms + s.finds + s.banked + s.depth - s.deaths * 10 - (s.hints || 0) + (s.escape || 0); }
+function totalScore() { const s = S.score; return s.rooms + s.finds + s.banked + s.depth - s.deaths * 10 - (s.hints || 0) + (s.escape || 0) + (s.slain || 0); }
 const RANKS = [[0, 'Lost Tourist'], [20, 'Weekend Spelunker'], [60, 'Cave Wanderer'], [120, 'Lamp-Bearer'], [220, 'Seasoned Delver'],
   [400, 'Deep Explorer'], [700, 'Master Spelunker'], [1100, 'Hollow-Walker'], [1600, 'Keeper of the Endless Cave']];
 function rankFor(sc) { let r = RANKS[0][1]; for (const [n, t] of RANKS) if (sc >= n) r = t; return r; }
@@ -110,6 +110,7 @@ function streamChunks(sync) {
 function loadChunk(cx, cz) {
   const L = S.level, data = buildChunkMesh(cx, cz, L), ch = getChunk(cx, cz, L), key = cx + ',' + cz;
   loaded.set(key, { cx, cz, ch, mesh: R.createMesh(data.opaque), water: data.water.length ? R.createMesh(data.water) : null });
+  spawnWyrmsFor(ch);
   for (const it of ch.items) {
     if (S.removed.has(it.id)) continue;
     worldItems.push(Object.assign({}, it, { ck: key, y: groundInfo(L, it.x, it.z).floor, ph: Math.random() * 6,
@@ -119,6 +120,8 @@ function loadChunk(cx, cz) {
 function unloadChunk(key, e) {
   R.deleteMesh(e.mesh); R.deleteMesh(e.water); loaded.delete(key);
   worldItems = worldItems.filter(it => it.ck !== key);
+  const pre = S.level + ':' + e.cx + ':' + e.cz + ':w';
+  creatures = creatures.filter(c => !(c.type === 'wyrm' && c.id.startsWith(pre)));
 }
 function unloadAll() {
   for (const [k, e] of loaded) { R.deleteMesh(e.mesh); R.deleteMesh(e.water); }
@@ -339,6 +342,7 @@ function describeHere(ch, ri, key) {
   log(describeRoom(ch, ri));
   const rune = ch.features.find(f => f.type === 'rune' && f.ri === ri);
   if (rune) learnRune(rune, false);
+  if (ch.rooms[ri].type === 'lair' && ch.features.some(f => f.type === 'wyrm' && f.ri === ri && S.slain.has(f.id))) log('The great wyrm lies dead upon its hoard, its fires gone out at last.', 'dim');
   const here = itemsHere().filter(it => it.rk === key);
   for (const it of here) log('There is ' + art(it.name) + ' here.', it.kind === 'treasure' ? 'good' : '');
 }
@@ -650,11 +654,15 @@ const DEATHS = {
   claw: 'The gloomkins swarm over you, all elbows and teeth.',
   lava: 'You wade a little too far into the lava. It does not go well.',
   fall: 'You hit the ground very hard indeed.',
+  fire: 'The wyrm\'s breath washes over you. For a brief moment you are the brightest thing in the whole cave.',
+  wyrm: 'The wyrm\'s jaws close on you with a sound like a dropped portcullis.',
+  tail: 'The wyrm\'s tail sends you flying into the wall. You do not get up.',
 };
 function hurt(n, why) {
   if (mode !== 'play' && mode !== 'transition') return;
   S.health -= n;
   flash = Math.min(0.55, flash + n / 70);
+  shake = Math.min(0.7, shake + n / 45);
   if (n >= 5) Sfx.hurt();
   if (S.health <= 0) { S.health = 0; die(DEATHS[why] || 'You have died.'); }
 }
@@ -697,141 +705,15 @@ function reincarnate() {
 }
 
 // ---------------------------------------------------------------- creatures
-function spawnLogic(dt) {
-  if (S.level < 1 || S.closing) return;
-  spawnTimer -= dt;
-  if (spawnTimer > 0) return;
-  spawnTimer = 7 + Math.random() * 10;
-  const glooms = creatures.filter(c => c.type === 'gloom').length;
-  const maxG = Math.min(5, 1 + Math.floor(S.level / 2));
-  if (glooms < maxG && Math.random() < Math.min(0.65, 0.2 + S.level * 0.05)) spawnCreature('gloom');
-  if (S.level >= 2 && !creatures.some(c => c.type === 'shade') && S.inv.some(i => i.kind === 'treasure') && Math.random() < 0.12) spawnCreature('shade');
-}
-function spawnCreature(type) {
-  for (let k = 0; k < 30; k++) {
-    const a = Math.random() * Math.PI * 2, d = 14 + Math.random() * 16;
-    const x = S.x + Math.cos(a) * d, z = S.z + Math.sin(a) * d;
-    const g = groundInfo(S.level, x, z);
-    if (g.kind !== 1 || (g.flags & (F_LAVA | F_LIQUID))) continue;
-    if (type === 'gloom' && d < 22 && los(S.level, S.x, S.y + 1.5, S.z, x, g.floor + 1, z)) continue;
-    creatures.push({ type, x, z, y: g.floor, t: 0, cool: 2 + Math.random() * 2, melee: 0, seen: false,
-      strafe: Math.random() < 0.5 ? 1 : -1, life: type === 'shade' ? 45 : 1e9, face: 0, ph: Math.random() * 6 });
-    if (type === 'shade') { log('You hear soft, delighted laughter somewhere behind you...', 'warn'); Sfx.shade(); }
-    return;
-  }
-}
 function panFor(x, z) {
   const dx = x - S.x, dz = z - S.z, rx = Math.cos(S.yaw), rz = -Math.sin(S.yaw), d = Math.hypot(dx, dz) || 1;
   return (dx * rx + dz * rz) / d;
-}
-function updateCreatures(dt) {
-  const L = S.level;
-  for (let i = creatures.length - 1; i >= 0; i--) {
-    const c = creatures[i];
-    c.t += dt; c.life -= dt;
-    const dx = S.x - c.x, dz = S.z - c.z, d = Math.hypot(dx, dz) || 0.001;
-    if (d > 60 || c.life < 0) {
-      if (c.type === 'shade' && d < 30) log('The laughter fades away into the dark.', 'dim');
-      creatures.splice(i, 1); continue;
-    }
-    const see = d < 32 && los(L, c.x, c.y + 1.0, c.z, S.x, S.y + 1.5, S.z);
-    let mx = 0, mz = 0, spd;
-    if (c.type === 'gloom') {
-      spd = 3.1;
-      if (see && !c.seen && d < 24) {
-        c.seen = true; Sfx.growl(panFor(c.x, c.z));
-        if (!S.metGloom) { S.metGloom = true; log('A gloomkin, one of the hunched grey things that hate light and love sharp objects, snarls at you from the shadows!', 'bad'); log('(Click to throw an axe, if you have one.)', 'dim'); }
-        else log('A gloomkin snarls at you from the darkness!', 'bad');
-      }
-      const ideal = lampLevel() > 0 ? 10 : 3;
-      if (!see || d > ideal + 3) { mx = dx / d; mz = dz / d; }
-      else if (d < ideal - 3) { mx = -dx / d * 0.7; mz = -dz / d * 0.7; }
-      else { mx = -dz / d * c.strafe * 0.6; mz = dx / d * c.strafe * 0.6; if (Math.random() < dt * 0.4) c.strafe *= -1; }
-      if (see && d < 22) {
-        c.cool -= dt;
-        if (c.cool <= 0) { c.cool = 2.2 + Math.random() * 2.2; throwKnife(c); }
-      }
-      if (d < 1.4) { c.melee -= dt; if (c.melee <= 0) { c.melee = 1.3; hurt(10, 'claw'); log('A gloomkin rakes you with its claws!', 'bad'); } }
-    } else {
-      spd = 5.6; mx = dx / d; mz = dz / d;
-      if (d < 1.4) { steal(c); creatures.splice(i, 1); continue; }
-    }
-    if (mx || mz) {
-      const ox = c.x, oz = c.z;
-      const r = collide(L, c.x + mx * spd * dt, c.z + mz * spd * dt, 0.4, c.y);
-      const g = groundInfo(L, r[0], r[1]);
-      if (g.kind === 1 && !(g.flags & F_LAVA)) { c.x = r[0]; c.z = r[1]; c.y = g.floor; }
-      if (Math.hypot(c.x - ox, c.z - oz) < spd * dt * 0.3) c.strafe *= -1;
-    }
-    c.face = Math.atan2(dx, dz);
-  }
-}
-function throwKnife(c) {
-  const ox = c.x, oy = c.y + 0.9, oz = c.z;
-  const tx = S.x + S.vx * 0.5, ty = S.y + 1.1, tz = S.z + S.vz * 0.5;
-  let dx = tx - ox, dy = ty - oy, dz = tz - oz;
-  const d = Math.hypot(dx, dy, dz) || 1;
-  dx /= d; dy /= d; dz /= d;
-  const spread = S.knives === 0 ? 0.25 : 0.06;   // the very first knife always misses
-  S.knives++;
-  dx += (Math.random() - 0.5) * spread + (S.knives === 1 ? 0.2 : 0); dy += (Math.random() - 0.5) * spread * 0.5 + 0.03; dz += (Math.random() - 0.5) * spread;
-  projectiles.push({ type: 'knife', x: ox, y: oy, z: oz, vx: dx * 16, vy: dy * 16, vz: dz * 16, life: 3, spin: 0 });
-  Sfx.whoosh();
-  knifeMsgT -= 1;
-  if (knifeMsgT <= 0) { knifeMsgT = 4; log('A knife whistles out of the darkness!', 'warn'); }
-}
-function throwAxe() {
-  const idx = S.inv.findIndex(i => i.kind === 'axe');
-  if (idx < 0) { log('You have nothing to throw. (Find an axe.)', 'dim'); return; }
-  const it = S.inv.splice(idx, 1)[0], f = camFwd();
-  projectiles.push({ type: 'axe', item: it, x: S.x + f[0] * 0.6, y: S.y + 1.45 + f[1] * 0.6, z: S.z + f[2] * 0.6,
-    vx: f[0] * 21, vy: f[1] * 21 + 0.8, vz: f[2] * 21, life: 4, spin: 0, lx: S.x, lz: S.z });
-  throwAnim = 0.35;
-  Sfx.whoosh();
 }
 function dropAxeAt(p, x, z) {
   let g = groundInfo(S.level, x, z);
   if (g.kind !== 1 && g.kind !== 3) { x = p.lx; z = p.lz; g = groundInfo(S.level, x, z); }
   if (g.kind !== 1 && g.kind !== 3) { x = S.x; z = S.z; g = groundInfo(S.level, x, z); }
   S.dropped.push(Object.assign({}, p.item, { L: S.level, x, z, y: g.floor, dropped: true, ph: 0, rk: roomKeyAt(S.level, x, z) }));
-}
-function kill(c) {
-  for (let k = 0; k < 12; k++) particles.push({ x: c.x, y: c.y + 0.5 + Math.random() * 0.6, z: c.z, vx: (Math.random() - 0.5) * 3, vy: Math.random() * 2, vz: (Math.random() - 0.5) * 3, life: 0.9, max: 0.9, s: 1 + Math.random() * 1.5 });
-  Sfx.poof(panFor(c.x, c.z));
-  S.kills++;
-  log(c.type === 'shade' ? 'Your axe passes through the shade with a shriek. It unravels into tatters of smoke.' : 'Your axe finds its mark. The gloomkin collapses into a puff of grey dust.', 'good');
-  creatures.splice(creatures.indexOf(c), 1);
-}
-function updateProjectiles(dt) {
-  const L = S.level;
-  for (let i = projectiles.length - 1; i >= 0; i--) {
-    const p = projectiles[i];
-    p.vy -= (p.type === 'axe' ? 9 : 3) * dt; p.spin += dt * 14; p.life -= dt;
-    const nx = p.x + p.vx * dt, ny = p.y + p.vy * dt, nz = p.z + p.vz * dt;
-    const g = groundInfo(L, nx, nz);
-    if (g.kind === 0 || ny < g.floor || ny > g.ceil || p.life < 0) {
-      if (p.type === 'axe') { dropAxeAt(p, p.x, p.z); Sfx.clink(); }
-      else if (Math.hypot(p.x - S.x, p.z - S.z) < 15) Sfx.clink();
-      projectiles.splice(i, 1); continue;
-    }
-    if (g.kind === 1 || g.kind === 3) { p.lx = nx; p.lz = nz; }
-    p.x = nx; p.y = ny; p.z = nz;
-    if (p.type === 'knife') {
-      if (Math.hypot(p.x - S.x, p.y - (S.y + 1.0), p.z - S.z) < 0.75) {
-        projectiles.splice(i, 1);
-        const n = 15 + Math.floor(Math.random() * 14);
-        log(['The knife slashes your arm!', 'Ouch! A knife grazes your ribs.', 'A knife bites into your shoulder!'][Math.floor(Math.random() * 3)], 'bad');
-        hurt(n, 'knife');
-      }
-    } else {
-      for (const c of creatures) {
-        const top = c.y + (c.type === 'shade' ? 2.3 : 1.45);
-        if (Math.hypot(p.x - c.x, p.z - c.z) < (c.type === 'shade' ? 0.9 : 0.75) && p.y > c.y - 0.1 && p.y < top) {
-          dropAxeAt(p, c.x, c.z); kill(c); projectiles.splice(i, 1); break;
-        }
-      }
-    }
-  }
 }
 function steal(c) {
   const ts = S.inv.filter(i => i.kind === 'treasure');
@@ -864,7 +746,8 @@ function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.life -= dt; if (p.life <= 0) { particles.splice(i, 1); continue; }
-    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vy += 0.5 * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    if (p.nograv) { const k = Math.exp(-2.5 * dt); p.vx *= k; p.vy = p.vy * k + 1.5 * dt; p.vz *= k; } else p.vy += 0.5 * dt;
   }
 }
 
@@ -873,7 +756,7 @@ const HELP_LINES_EXTRA = 'Puzzles: UNLOCK GATE, FEED MOLE, BRIDGE GAP, FILL WATE
 const HELP_LINES = [
   'Explore the endless cave. Find treasure. Carry it back to the trunk at camp to score.',
   'Move W A S D, look with the mouse, Shift to run, Space to jump.',
-  'E take / use   F lamp   R refuel   X eat   Click throw axe   M map   I inventory   L look   Esc pause',
+  'E take / use   F lamp   R refuel   X eat   Click swing axe   Q / right-click throw axe   M map   I inventory   L look   Esc pause',
   'Press Enter to type commands: TAKE <thing>, TAKE ALL, DROP <thing>, DROP ALL, INVENTORY, LOOK, SCORE, LAMP ON/OFF, FILL, EAT, THROW AXE, DOWN, UP, SAY <word>, WORDS, BRIEF, VERBOSE, SAVE, RESTORE, MAP, QUIT.',
   'Rope shafts lead deeper. Deeper treasures are worth more. Watch your lamp oil: it does not last forever.',
   HELP_LINES_EXTRA,
@@ -992,7 +875,8 @@ function runCommand(raw) {
       return;
     case 'eat': case 'consume': case 'devour': eat(rest[0]); return;
     case 'drink': log(groundInfo(S.level, S.x, S.z).flags & F_LIQUID ? 'You scoop up a handful of the icy water. It tastes of stone.' : 'There is nothing here to drink.', 'dim'); return;
-    case 'throw': case 'hurl': case 'toss': case 'attack': case 'kill': case 'fight': case 'hit': throwAxe(); return;
+    case 'throw': case 'hurl': case 'toss': throwAxe(); return;
+    case 'attack': case 'kill': case 'fight': case 'hit': case 'swing': case 'strike': case 'chop': case 'slay': meleeSwing(); return;
     case 'down': case 'd': case 'descend': case 'climb': case 'up': case 'u': case 'ascend': {
       const goUp = verb === 'up' || verb === 'u' || verb === 'ascend' || rest.includes('up');
       const vp = nearPuzzle('vine', 4);
@@ -1174,7 +1058,7 @@ function hideOverlay() { overlay.classList.add('hidden'); overlay.innerHTML = ''
 const KEYS_HTML = '<div class="keys"><b>W A S D</b><span>move · mouse to look · Shift run · Space jump</span>' +
   '<b>E</b><span>take / use (ropes, trunk, barrel, standing stones)</span>' +
   '<b>F · R · X</b><span>lamp on/off · refuel lamp · eat</span>' +
-  '<b>Click</b><span>throw your axe</span>' +
+  '<b>Click · Q</b><span>swing your axe · throw it (or right-click)</span>' +
   '<b>M · I · L</b><span>map · inventory · look around</span>' +
   '<b>Enter</b><span>type a command: TAKE ALL, DROP IDOL, SCORE, SAY &lt;word&gt;, HELP...</span>' +
   '<b>B · G</b><span>AI plays at 5× · autopilot home to camp (any key takes back control)</span>' +
@@ -1270,7 +1154,7 @@ function saveGame(silent) {
   if (!S || mode === 'over') return;
   try {
     const o = Object.assign({}, S, { removed: [...S.removed], visited: [...S.visited], found: [...S.found], map: encodeMap(S.map),
-      solved: [...S.solved], hintsBought: [...S.hintsBought] });
+      solved: [...S.solved], hintsBought: [...S.hintsBought], slain: [...S.slain] });
     localStorage.setItem(SAVE_KEY, JSON.stringify(o));
     if (!silent) log('Game saved.', 'dim');
   } catch (e) { if (!silent) log('Could not save: ' + e.message, 'bad'); }
@@ -1281,7 +1165,7 @@ function loadGame() {
   setupWorld(o.seed);
   const fresh = newState(o.seed);
   S = Object.assign(fresh, o, { removed: new Set(o.removed), visited: new Set(o.visited), found: new Set(o.found), map: decodeMap(o.map || {}),
-    solved: new Set(o.solved || []), hintsBought: new Set(o.hintsBought || []), score: Object.assign(fresh.score, o.score) });
+    solved: new Set(o.solved || []), hintsBought: new Set(o.hintsBought || []), slain: new Set(o.slain || []), score: Object.assign(fresh.score, o.score) });
   WORLD.solved = S.solved;
   creatures = []; projectiles = []; particles = [];
   streamChunks(true);
@@ -1306,6 +1190,7 @@ function updateHUD() {
   for (const i of S.inv) h += '<div class="' + (i.kind === 'treasure' ? 't' : '') + '">' + i.name + '</div>';
   $('inv').innerHTML = h + '<div style="opacity:.6">' + S.inv.length + '/' + MAX_INV + ' carried</div>';
   promptEl.textContent = AI.on ? '' : promptText(interactTarget);
+  updateBossBar();
   const ban = $('aiBanner');
   ban.classList.toggle('on', AI.on);
   if (AI.on) ban.textContent = (AI.homeOnly ? 'AUTOPILOT HOME ' : 'AUTOPILOT ') + AI_SPEED + '× · ' + AI.status + ' · any key to take over';
@@ -1372,9 +1257,11 @@ function drawMap(ctx, w, h, scale, full) {
 function render() {
   const lamp = S ? lampLevel() : 0;
   const bob = Math.sin(bobPhase * 2) * 0.05 * bobAmt;
-  const eyeY = S.y + EYE + bob;
+  const sh = mode === 'play' ? shake * shake : 0;
+  const eyeY = S.y + EYE + bob + (Math.random() - 0.5) * sh * 0.25;
+  const camX = S.x + (Math.random() - 0.5) * sh * 0.25, camZ = S.z + (Math.random() - 0.5) * sh * 0.25;
   const proj = m4persp(72 * Math.PI / 180, R.aspect, 0.05, 220);
-  const view = m4mul(m4rx(-S.pitch), m4mul(m4ry(-S.yaw), m4t(-S.x, -eyeY, -S.z)));
+  const view = m4mul(m4rx(-S.pitch), m4mul(m4ry(-S.yaw), m4t(-camX, -eyeY, -camZ)));
   const vp = m4mul(proj, view);
   const f = camFwd(), rx = Math.cos(S.yaw), rz = -Math.sin(S.yaw);
   const lampPos = [S.x + f[0] * 0.4 - rx * 0.3, eyeY - 0.3, S.z + f[2] * 0.4 - rz * 0.3];
@@ -1409,16 +1296,7 @@ function render() {
       R.drawEntity(getModel(done ? 'vine' : 'bulb', done ? 'MOSS' : 'SKIN'), m4trs(vx, p.y, vz, yaw, 0, 0, 1), sampleLight(vx, p.y + 1, vz), done ? 0.05 : 0);
     }
   }
-  // creatures
-  for (const c of creatures) {
-    const light = sampleLight(c.x, c.y + 1, c.z);
-    if (c.type === 'gloom') {
-      const hop = Math.abs(Math.sin(c.t * 9 + c.ph)) * 0.12;
-      R.drawEntity(getModel('gloomkin', 'SKIN'), m4trs(c.x, c.y + hop, c.z, c.face, Math.sin(c.t * 9) * 0.05, Math.sin(c.t * 4.5) * 0.08, 1.15), light);
-    } else {
-      R.drawEntity(getModel('shade', 'CLOTH'), m4trs(c.x, c.y + 0.3 + Math.sin(c.t * 3) * 0.15, c.z, c.face, 0.15, 0, 1.0), light, 0.05);
-    }
-  }
+  drawCreatures();
   for (const p of projectiles) {
     const light = sampleLight(p.x, p.y, p.z);
     const yaw = Math.atan2(p.vx, p.vz);
@@ -1426,8 +1304,8 @@ function render() {
     else R.drawEntity(getModel('knife', 'METAL'), m4mul(m4trs(p.x, p.y, p.z, yaw, Math.PI / 2, 0, 1.5), m4t(0, -0.15, 0)), light);
   }
   for (const p of particles) {
-    const s = p.s * (p.life / p.max);
-    R.drawEntity(getModel('puff', 'SMOKE'), m4trs(p.x, p.y, p.z, p.life * 3, p.life * 2, 0, s), [0.5, 0.5, 0.5], 0.2);
+    const k = p.life / p.max, s = p.grow ? p.s * (1 + (1 - k) * p.grow) * Math.min(1, k * 3) : p.s * k;
+    R.drawEntity(getModel(p.mat === 'FIRE' ? 'flame' : 'puff', p.mat || 'SMOKE'), m4trs(p.x, p.y, p.z, p.life * 3, p.life * 2, 0, s), [0.5, 0.5, 0.5], p.glow || 0.2);
   }
   // water
   R.blend(true);
@@ -1444,12 +1322,7 @@ function render() {
     const vlight = [amb[0] + 0.05, amb[1] + 0.05, amb[2] + 0.05];
     const lit = lamp > 0;
     R.drawEntity(getModel('lantern', lit ? 'GLASS' : 'BLACK'), m4trs(-0.25 + sb, -0.27 - cb, -0.5, 0.3, 0, Math.sin(bobPhase) * 0.04 * bobAmt, 0.55), vlight);
-    if (S.inv.some(i => i.kind === 'axe') || throwAnim > 0) {
-      const t = throwAnim > 0 ? 1 - throwAnim / 0.35 : 0;
-      if (throwAnim <= 0 || t < 0.5) {
-        R.drawEntity(getModel('axe', 'METAL'), m4trs(0.34 - sb, -0.62 + cb - t * 0.3, -0.62 - t * 0.2, -1.9, -0.35 - t * 2, 0.25, 0.9), vlight);
-      }
-    }
+    drawViewAxe(vlight, sb, cb);
   }
   R.present(fade, flash, flashCol);
 }
@@ -1494,6 +1367,7 @@ function frame(now) {
     else update(dt);
     fade += (fadeTarget - fade) * Math.min(1, dt * (fadeTarget > fade ? 6 : 2.5));
     flash = Math.max(0, flash - dt * 1.2);
+    shake = Math.max(0, shake - dt * 1.6);
     render();
     if (mode !== 'title') {
       hudT -= dt;
@@ -1543,6 +1417,7 @@ addEventListener('keydown', e => {
     case 'KeyM': case 'Tab': setMap(!mapOpen); break;
     case 'KeyR': if (featureNear('barrel', 4)) refillBarrel(); else refuel(); break;
     case 'KeyX': eat(); break;
+    case 'KeyQ': throwAxe(); break;
     case 'KeyH': for (const h of HELP_LINES) log(h, 'dim'); break;
     case 'KeyP': cycleRes(); break;
     case 'KeyK': log(Sfx.toggleMute() ? 'Sound off.' : 'Sound on.', 'dim'); break;
@@ -1560,11 +1435,14 @@ canvas.addEventListener('mousedown', e => {
   if (AI.on && mode === 'play') { stopAutopilot(); log('[You take back control.]', 'cmd'); lockPointer(); return; }
   if (mode !== 'play') return;
   if (document.pointerLockElement !== canvas) { lockPointer(); return; }
-  if (e.button === 0 && !consoleOpen) throwAxe();
+  if (consoleOpen) return;
+  if (e.button === 0) meleeSwing();
+  else if (e.button === 2) throwAxe();
 });
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement !== canvas && mode === 'play' && !consoleOpen && !AI.on) showPause();
 });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
 cmdEl.addEventListener('blur', () => { if (consoleOpen) setTimeout(() => consoleOpen && cmdEl.focus(), 0); });
 
 // ---------------------------------------------------------------- boot

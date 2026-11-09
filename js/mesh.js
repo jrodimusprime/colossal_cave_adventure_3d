@@ -367,6 +367,80 @@ function buildModel(name, mat) {
       addBox(mb, -0.055, 0.28, 0, 0.008, 0.03, 0.008, T.METAL); addBox(mb, 0.055, 0.28, 0, 0.008, 0.03, 0.008, T.METAL);
       break;
     case 'puff': addRock(mb, 0, 0, 0, 0.12, 0.12, 0.12, 2, mat, 0.3); break;
+    case 'flame': addRock(mb, 0, 0, 0, 0.18, 0.18, 0.18, 5, mat, 0.5); break;
+    // ---- gloomkin parts (each built around its joint) ----
+    case 'gk_torso':
+      addBox(mb, 0, 0.24, 0.02, 0.2, 0.22, 0.14, T.SKIN);
+      addBox(mb, 0, 0.42, -0.04, 0.16, 0.06, 0.1, T.SKIN);             // hunched shoulders
+      addBox(mb, 0, 0.02, 0, 0.21, 0.08, 0.15, T.CLOTH);               // loincloth
+      addBox(mb, 0, -0.08, 0.12, 0.12, 0.08, 0.02, T.CLOTH);
+      break;
+    case 'gk_head':
+      addBox(mb, 0, 0.12, 0.06, 0.17, 0.14, 0.15, T.SKIN);
+      addBox(mb, 0, 0.06, 0.2, 0.07, 0.05, 0.05, T.SKIN);              // snout
+      addSpike(mb, -0.15, 0.16, 0.04, [-1, 0.6, -0.3], 0.26, 0.06, 4, T.SKIN);
+      addSpike(mb, 0.15, 0.16, 0.04, [1, 0.6, -0.3], 0.26, 0.06, 4, T.SKIN);
+      addBox(mb, -0.07, 0.15, 0.21, 0.035, 0.025, 0.01, T.EYE); addBox(mb, 0.07, 0.15, 0.21, 0.035, 0.025, 0.01, T.EYE);
+      addBox(mb, 0, 0.02, 0.21, 0.07, 0.015, 0.01, T.BLACK);
+      break;
+    case 'gk_arm':
+      addBox(mb, 0, -0.18, 0, 0.05, 0.19, 0.05, T.SKIN);
+      addRock(mb, 0, -0.41, 0.02, 0.065, 0.06, 0.07, 3, T.SKIN, 0.2);
+      break;
+    case 'gk_leg':
+      addBox(mb, 0, -0.19, 0, 0.065, 0.2, 0.065, T.SKIN);
+      addBox(mb, 0, -0.39, 0.06, 0.07, 0.035, 0.11, T.SKIN);
+      break;
+    case 'gk_knife':
+      addBox(mb, 0, 0, -0.02, 0.018, 0.018, 0.05, T.WOOD);
+      addBox(mb, 0, 0, 0.12, 0.006, 0.025, 0.1, T.SILVER);
+      break;
+    // ---- the Cinder Wyrm (built around its joints, +z forward) ----
+    case 'wy_body':
+      addLathe(mb, 0, 0, 0, [[0, -1.9], [0.62, -1.55], [0.95, -0.6], [1.0, 0.4], [0.8, 1.35], [0.45, 1.95], [0, 2.05]], 8, T.SCALES, 0.2, ONE3, [0, 0, 1]);
+      addLathe(mb, 0, -0.25, 0, [[0, -1.3], [0.6, -0.9], [0.68, 0.3], [0.5, 1.2], [0, 1.5]], 6, T.BONE, 0.3, [0.9, 0.75, 0.6], [0, 0, 1]);   // pale belly
+      for (let k = 0; k < 7; k++) addSpike(mb, 0, 0.82, -1.5 + k * 0.5, [0, 1, -0.4], 0.45 - Math.abs(k - 3) * 0.05, 0.12, 4, T.BONE);
+      break;
+    case 'wy_neck':
+      addLathe(mb, 0, 0, 0, [[0, -0.1], [0.5, 0], [0.4, 0.8], [0.34, 1.45], [0, 1.5]], 7, T.SCALES, 0.2, ONE3, [0, 0, 1]);
+      for (let k = 0; k < 3; k++) addSpike(mb, 0, 0.38, 0.25 + k * 0.42, [0, 1, -0.5], 0.28, 0.08, 4, T.BONE);
+      break;
+    case 'wy_head':
+      addBox(mb, 0, 0.08, 0.35, 0.36, 0.28, 0.42, T.SCALES);
+      addBox(mb, 0, 0.0, 0.92, 0.26, 0.18, 0.32, T.SCALES);
+      addBox(mb, 0, 0.18, 0.62, 0.3, 0.06, 0.12, T.SCALES);
+      addSpike(mb, -0.24, 0.3, 0.1, [-0.4, 0.7, -1], 0.75, 0.09, 4, T.BONE);
+      addSpike(mb, 0.24, 0.3, 0.1, [0.4, 0.7, -1], 0.75, 0.09, 4, T.BONE);
+      addBox(mb, -0.27, 0.16, 0.66, 0.05, 0.05, 0.08, T.EYE); addBox(mb, 0.27, 0.16, 0.66, 0.05, 0.05, 0.08, T.EYE);
+      for (let k = 0; k < 4; k++) { addSpike(mb, -0.2 + k * 0.13, -0.17, 1.12, [0, -1, 0.2], 0.14, 0.03, 3, T.BONE); }
+      break;
+    case 'wy_jaw':
+      addBox(mb, 0, -0.06, 0.55, 0.24, 0.07, 0.5, T.SCALES);
+      for (let k = 0; k < 4; k++) addSpike(mb, -0.18 + k * 0.12, 0.0, 0.95, [0, 1, 0.1], 0.13, 0.03, 3, T.BONE);
+      break;
+    case 'wy_mouth': addBox(mb, 0, -0.03, 0.75, 0.2, 0.05, 0.35, T.FIRE); break;
+    case 'wy_tail':
+      addLathe(mb, 0, 0, 0, [[0, 0.1], [0.5, 0], [0.3, -1.55], [0, -1.65]], 7, T.SCALES, 0.2, ONE3, [0, 0, 1]);
+      addSpike(mb, 0, 0.35, -0.6, [0, 1, -0.6], 0.3, 0.08, 4, T.BONE);
+      break;
+    case 'wy_tailtip':
+      addLathe(mb, 0, 0, 0, [[0, 0.1], [0.3, 0], [0.12, -1.2], [0, -1.6]], 6, T.SCALES, 0.2, ONE3, [0, 0, 1]);
+      addSpike(mb, 0, 0, -1.4, [0, 0.4, -1], 0.6, 0.18, 4, T.BONE);
+      break;
+    case 'wy_leg':
+      addBox(mb, 0, -0.4, 0, 0.2, 0.42, 0.24, T.SCALES);
+      addBox(mb, 0, -0.85, 0.12, 0.24, 0.08, 0.32, T.SCALES);
+      for (let k = 0; k < 3; k++) addSpike(mb, -0.14 + k * 0.14, -0.88, 0.4, [0, -0.3, 1], 0.22, 0.05, 3, T.BONE);
+      break;
+    case 'wy_wingL': case 'wy_wingR': {
+      const sx = name === 'wy_wingL' ? -1 : 1;
+      addBox(mb, sx * 0.9, 0.1, 0, 0.9, 0.06, 0.06, T.SCALES);
+      addBox(mb, sx * 1.75, -0.2, -0.3, 0.06, 0.4, 0.06, T.SCALES);
+      const A = [0, 0, 0], B = [sx * 1.8, 0.15, 0], C = [sx * 1.85, -0.55, -0.6], D = [sx * 1.1, -0.35, -1.3], E = [sx * 0.2, -0.1, -0.9];
+      const lay = T.SCALES, h = [0, 1, 0];
+      mb.tri(A, B, C, lay, ...h); mb.tri(A, C, D, lay, ...h); mb.tri(A, D, E, lay, ...h);
+      break;
+    }
     case 'key':
       addLathe(mb, -0.12, 0.03, 0, [[0.05, 0], [0.08, 0.015], [0.08, 0.03], [0.05, 0.045]], 8, mat);
       addBox(mb, 0.06, 0.03, 0, 0.12, 0.015, 0.015, mat);

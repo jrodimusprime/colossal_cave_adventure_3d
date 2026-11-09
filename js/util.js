@@ -84,6 +84,10 @@ function m4trs(x, y, z, yaw, pitch, roll, s) {
   return m;
 }
 
+function m4pt(m, x, y, z) { return [m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14]]; }
+function m4chain(...ms) { let r = ms[0]; for (let i = 1; i < ms.length; i++) r = m4mul(r, ms[i]); return r; }
+function angWrap(a) { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; }
+
 const COMPASS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
 // north is -z
 function dirWord(dx, dz) {
