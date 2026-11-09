@@ -940,9 +940,8 @@ function runCommand(raw) {
         return;
       }
       if (!rest.length) { if (interactTarget && interactTarget.type === 'item') takeItem(interactTarget.it); else log('Take what?', 'dim'); return; }
-      if (matchInv(rest)) { log('You are already carrying it.', 'dim'); return; }
       const m = matchNear(rest);
-      if (!m.length) { log('I see no ' + rest.join(' ') + ' here.', 'dim'); return; }
+      if (!m.length) { log(matchInv(rest) ? 'You are already carrying it.' : 'I see no ' + rest.join(' ') + ' here.', 'dim'); return; }
       takeItem(m[0]); return;
     }
     case 'drop': case 'put': case 'leave': case 'discard': case 'release': case 'deposit': case 'stash': case 'store': {

@@ -29,7 +29,15 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 - **The Tangle.** Some sections are mazes of identical tunnels where your map stops working. Drop things to mark your way.
 - **The cave closes.** Bank 12 treasures and a bell starts tolling. Be back at camp by the last bell to win (+100), or be sealed in forever. Treasure banked while the bells ring counts double.
 - **Hints.** Type `HINT`. It knows what you are stuck on, but costs 5 points (you're asked to confirm first).
-- **Autopilot.** "Watch the AI play" on the title screen (or B) hands the game to an AI at 5× speed. It explores, fights, banks treasure and uses magic words, typing its commands as it goes. "Autopilot: go home" on the pause screen (or G) takes you back to camp. Any key takes back control.
+- **Autopilot.** "Watch the AI play" on the title screen (or B) hands the game to an AI at 5× speed. It explores, fights, banks treasure, uses magic words and solves puzzles, typing its commands as it goes. "Autopilot: go home" on the pause screen (or G) takes you back to camp. Any key takes back control.
+
+## How the AI plays
+
+- **It only knows what it has seen.** Items, puzzles, lakes and ropes go into its memory when they come into its lamplight with a clear line of sight. It never reads the level generator.
+- **It explores frontiers.** When there's nothing better to do, it heads for the nearest edge between cells it has seen and cells it hasn't, just like a player pushing into the dark. This uses its own memory, so it works in the Tangle where the in-game map doesn't.
+- **It plans puzzles with GOAP (goal-oriented action planning).** Each command is an action with preconditions and effects (`TAKE waterskin` gives you the waterskin; `FILL` needs the waterskin and a lake; `POUR WATER` needs a full waterskin...). For each remembered puzzle, a Dijkstra search over world states finds the cheapest chain of actions to its treasure, costed by walking distance, and the AI announces it in the log, e.g. `[AI plan: fill the waterskin at the lake -> water the bulb -> climb the vine to the shelf]`. It replans from the real game state after every step, so a stolen key or a vanished item just produces a new plan.
+- **Reactive priorities sit on top**: fighting, refuelling, eating, fetching its axe, going home when the pack is full, and running for camp when the cave starts to close.
+- **Paths are A\*** over the cave grid, with clearance around stalagmites, columns and rocks.
 
 ## Controls
 
@@ -56,4 +64,4 @@ The classic cave adventures had no plot, only a premise: there is a cave, it is 
 | `js/renderer.js` | WebGL2 renderer: low-res target, banded light, fog, upscale |
 | `js/audio.js` | synthesised WebAudio sound |
 | `js/game.js` | player, parser, creatures, lamp, map, save/load, HUD |
-| `js/autopilot.js` | the AI player: A* pathfinding, goal selection, typed commands |
+| `js/autopilot.js` | the AI player: memory, frontier exploration, GOAP planner, A* pathfinding |
