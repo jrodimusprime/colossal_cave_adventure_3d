@@ -6,10 +6,12 @@
 const $ = id => document.getElementById(id);
 const canvas = $('gl'), hud = $('hud'), logEl = $('log'), promptEl = $('prompt'), cmdEl = $('cmd'), consoleEl = $('console');
 const overlay = $('overlay'), mini = $('minimap'), miniCtx = mini.getContext('2d'), big = $('bigmap'), bigCtx = big.getContext('2d');
-const MAX_INV = 7, SAVE_KEY = 'endless-cave-save-v1', SENS = 0.0022, EYE = 1.6, RADIUS = 0.42;
+const MAX_INV = 7, SAVE_KEY = 'endless-cave-save-v1', SENS_KEY = 'endless-cave-sens', BASE_SENS = 0.0022, EYE = 1.6, RADIUS = 0.42;
 const RES_STEPS = [180, 240, 300, 400, 540];
 let resIdx = 2;
 let R = null;
+let sensMul = 1;
+try { const v = parseFloat(localStorage.getItem(SENS_KEY)); if (v >= 0.1 && v <= 4) sensMul = v; } catch (e) { /* ignore */ }
 
 const modelCache = new Map();
 function getModel(name, mat) {
@@ -958,7 +960,14 @@ function showPause() {
   mode = 'paused'; closeConsole();
   overlay.classList.remove('hidden');
   overlay.innerHTML = '<div class="panel"><h2>Paused</h2><p>Score ' + totalScore() + ' · ' + rankFor(totalScore()) + ' · level ' + S.level + ' (' + regionFor(S.level).name + ')</p>' + KEYS_HTML +
+    '<div class="setting"><label for="sensIn">Mouse sensitivity</label><input type="range" id="sensIn" min="0.1" max="4" step="0.05" value="' + sensMul + '">' +
+    '<span id="sensVal">' + sensMul.toFixed(2) + '×</span></div>' +
     '<div class="btns"><button id="bRes">Resume</button><button id="bSave">Save</button><button id="bQuit">Quit to title</button></div></div>';
+  $('sensIn').oninput = e => {
+    sensMul = parseFloat(e.target.value);
+    $('sensVal').textContent = sensMul.toFixed(2) + '×';
+    try { localStorage.setItem(SENS_KEY, String(sensMul)); } catch (err) { /* ignore */ }
+  };
   $('bRes').onclick = () => { hideOverlay(); mode = 'play'; lockPointer(); };
   $('bSave').onclick = () => { saveGame(false); $('bSave').textContent = 'Saved'; };
   $('bQuit').onclick = () => { saveGame(true); showTitle(); };
@@ -1161,7 +1170,8 @@ function update(dt) {
   if (pending) { pending.t -= dt; if (pending.t <= 0) { const fn = pending.fn; pending = null; fn(); } return; }
   if (mode !== 'play' || consoleOpen) return;
   S.time += dt;
-  S.yaw -= mouseDX * SENS; S.pitch = clamp(S.pitch - mouseDY * SENS, -1.45, 1.45);
+  const sens = BASE_SENS * sensMul;
+  S.yaw -= mouseDX * sens; S.pitch = clamp(S.pitch - mouseDY * sens, -1.45, 1.45);
   mouseDX = mouseDY = 0;
   streamChunks(false);
   const { g, moving } = updatePlayer(dt);
